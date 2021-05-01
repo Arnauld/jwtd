@@ -1,0 +1,18 @@
+= JWTd
+
+
+== Building and Running a Cargo Project
+
+[source,adoc]
+....
+cargo build
+....
+
+=== Building for Release
+
+[source,adoc]
+....
+cargo build --release
+....
+
+
