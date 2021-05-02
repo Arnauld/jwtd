@@ -67,17 +67,24 @@ pub struct Auth {
 
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
-    pub generate_iat: Option<bool>,
+    pub generate: Option<String>,
 }
 
 
-fn private_key() -> Result<String> {
-    let location = env::var("PRIV_KEY_LOCATION")
+pub fn private_key() -> Result<String> {
+    let location = env::var("JWT_PRIV_KEY_LOCATION")
                         .expect("Environment variable 'PRIV_KEY_LOCATION' not set; unable to read private key");
 
     return fs::read_to_string(location)
                 .map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
 }
+
+pub fn issuer() -> String {
+    return match env::var("JWT_ISSUER") {
+        Ok(s) => s,
+        _ => "jwtd".to_string(),
+    }
+} 
 
 pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
     let header = Header::new(Algorithm::HS256);
@@ -85,7 +92,7 @@ pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
             .map_err(|err| new_error(ErrorKind::TokenError(err)));
 }
 
-fn json_to_Auth() -> impl Filter<Extract = (Auth,), Error = warp::Rejection> + Clone {
+fn json_to_auth() -> impl Filter<Extract = (Auth,), Error = warp::Rejection> + Clone {
     // When accepting a body, we want a JSON body
     // (and to reject huge payloads)...
     warp::body::content_length_limit(1024 * 16).and(warp::body::json())
@@ -115,9 +122,36 @@ pub async fn auth_token(opts: Auth) -> result::Result<impl warp::Reply, Infallib
     Ok(warp::reply::json(&token))
 }
 
-pub async fn sign_claims(body: serde_json::Value, signOpts: SignOpts) -> result::Result<impl warp::Reply, Infallible> {
-    log::debug!("sign_claims: {:?} // {:?}", body, signOpts);
-    let token = generate_token(&body)
+pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result::Result<impl warp::Reply, Infallible> {
+    log::debug!("sign_claims: {:?} // {:?}", body, sign_opts);
+    let claims = match sign_opts.generate {
+        Some(generate) => {
+            match body {
+                serde_json::Value::Object(m) => {
+                    let mut m = m.clone();
+                    let issued_at = Utc::now().timestamp();
+                    let expiration = Utc::now()
+                        .checked_add_signed(chrono::Duration::seconds(60))
+                        .expect("valid timestamp")
+                        .timestamp();
+                    if generate.contains("iat") {
+                        m.insert("iat".to_string(), serde_json::Value::Number(issued_at.into()));
+                    }
+                    if generate.contains("exp") {
+                        m.insert("exp".to_string(), serde_json::Value::Number(expiration.into()));
+                    }
+                    if generate.contains("iss") {
+                        m.insert("iss".to_string(), serde_json::Value::String(issuer()));
+                    }
+                    serde_json::Value::Object(m)
+                },
+                _ => body.clone(),
+            }
+        },
+        _ => body.clone(),
+    };
+
+    let token = generate_token(&claims)
                     .expect("Failed to generate token...");
     Ok(warp::reply::json(&token))
 }
@@ -137,7 +171,7 @@ async fn main() {
                     .map(|name| format!("Hello, {}!", name));
     let auth  = warp::path!("auth")
                     .and(warp::post())
-                    .and(json_to_Auth())
+                    .and(json_to_auth())
                     .and_then(auth_token);
 
     let sign = warp::path!("sign")
