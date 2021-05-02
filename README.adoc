@@ -15,4 +15,10 @@ cargo build
 cargo build --release
 ....
 
+== Docker (or without rust env.) build
+
+[source,adoc]
+....
+docker build -t technbolts/jwtd .
+....
 
