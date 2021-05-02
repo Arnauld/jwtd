@@ -4,8 +4,8 @@
 ....
 curl -d '{"aid":"AGENT:007"}' -H "Content-Type: application/json" http://localhost:8080/auth
 curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/sign
-curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/sign?generate_iat=true
-
+curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/sign?generate=iatexpiss
+curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/sign?generate=iat,exp
 ....
 
 == Building and Running a Cargo Project
