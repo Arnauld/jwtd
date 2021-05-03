@@ -1,10 +1,9 @@
 use warp::{
-    filters::{any, query, BoxedFilter},
     http::StatusCode,
-    reject::Reject,
-    Filter, Rejection, Reply,
+    Filter
 };
 use serde::{Serialize, Deserialize};
+use serde_json;
 use jsonwebtoken::{encode, Header, Algorithm, EncodingKey};
 use chrono::prelude::*;
 use std::env;
@@ -21,7 +20,7 @@ pub struct SignOpts {
 
 pub fn private_key() -> Result<Vec<u8>> {
     let location = env::var("JWT_PRIV_KEY_LOCATION".to_string())
-                        .map_err(|err| new_error(ErrorKind::MissingConfigError("Environment variable 'PRIV_KEY_LOCATION' not set; unable to read private key".to_string())))?;
+                        .map_err(|_| new_error(ErrorKind::MissingConfigError("Environment variable 'JWT_PRIV_KEY_LOCATION' not set; unable to read private key".to_string())))?;
 
     return fs::read(location)
                 .map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
@@ -35,7 +34,7 @@ pub fn issuer() -> String {
 } 
 
 pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
-    let header = Header::new(Algorithm::HS256);
+    let header = Header::new(Algorithm::RS256);
     let priv_key = private_key()?;
     return encode(&header, &claims, &EncodingKey::from_rsa_pem(&priv_key)
                                         .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?)
@@ -72,15 +71,15 @@ pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result
     };
 
     match generate_token(&claims) {
-        Ok(token) => 
+        Ok(token) =>
             Ok(warp::reply::with_status(
-                String::from("Something bad happened"),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            )),//warp::reply::json(&token)),
+                token,
+                StatusCode::OK,
+            )),
         Err(err)  => {
             log::error!("Ouch... {}", err);
             Ok(warp::reply::with_status(
-                String::from("Something bad happened"),
+                format!("Something bad happened: {:?}", err).to_string(),
                 StatusCode::INTERNAL_SERVER_ERROR,
             ))
         },

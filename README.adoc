@@ -33,6 +33,13 @@ cargo build --release
 docker build -t technbolts/jwtd .
 ....
 
+[source,adoc]
+....
+docker tag -i 7358d9f4b652 technbolts/jwtd:0.1.0
+docker login -u xxxx -p xxxx
+docker push technbolts/jwtd:0.1.0
+....
+
 == Local setup (for testing purpose)
 
 [source,raw]
