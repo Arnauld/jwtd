@@ -489,6 +489,7 @@ name = "jwtd"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "indexmap",
  "jsonwebtoken",
  "log",
  "pretty_env_logger",

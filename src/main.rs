@@ -1,4 +1,9 @@
-use warp::Filter;
+use warp::{
+    filters::{any, query, BoxedFilter},
+    http::StatusCode,
+    reject::Reject,
+    Filter, Rejection, Reply,
+};
 use serde::{Serialize, Deserialize};
 use jsonwebtoken::{encode, Header, Algorithm, EncodingKey};
 use chrono::prelude::*;
@@ -15,16 +20,15 @@ pub struct SignOpts {
 }
 
 pub fn private_key() -> Result<Vec<u8>> {
-    //log::debug!("envs {:?}", env::vars);
-    let location = env::var("JWT_PRIV_KEY_LOCATION")
-                        .expect("Environment variable 'PRIV_KEY_LOCATION' not set; unable to read private key");
+    let location = env::var("JWT_PRIV_KEY_LOCATION".to_string())
+                        .map_err(|err| new_error(ErrorKind::MissingConfigError("Environment variable 'PRIV_KEY_LOCATION' not set; unable to read private key".to_string())))?;
 
     return fs::read(location)
                 .map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
 }
 
 pub fn issuer() -> String {
-    return match env::var("JWT_ISSUER") {
+    return match env::var("JWT_ISSUER".to_string()) {
         Ok(s) => s,
         _ => "jwtd".to_string(),
     }
@@ -32,7 +36,7 @@ pub fn issuer() -> String {
 
 pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
     let header = Header::new(Algorithm::HS256);
-    let priv_key = private_key().expect("Unable to load private key to sign JWT");
+    let priv_key = private_key()?;
     return encode(&header, &claims, &EncodingKey::from_rsa_pem(&priv_key)
                                         .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?)
             .map_err(|err| new_error(ErrorKind::TokenError(err)));
@@ -67,22 +71,24 @@ pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result
         _ => body.clone(),
     };
 
-    let token = generate_token(&claims)
-                    .expect("Failed to generate token...");
-    Ok(warp::reply::json(&token))
+    match generate_token(&claims) {
+        Ok(token) => 
+            Ok(warp::reply::with_status(
+                String::from("Something bad happened"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            )),//warp::reply::json(&token)),
+        Err(err)  => {
+            log::error!("Ouch... {}", err);
+            Ok(warp::reply::with_status(
+                String::from("Something bad happened"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        },
+    }
 }
 
 #[tokio::main]
 async fn main() {
-    let count = env::vars()
-        .inspect(|(key, value)| println!("'{}': {}", key, value))
-        .count();
-    println!("#{} env vars", count);
-
-    match env::var("PRIV_KEY_LOCATION".to_string()) {
-        Ok(val) => println!(":: {:?}", val),
-        Err(e) => println!("couldn't interpret :: {}", e),
-    }
 
     if env::var_os("RUST_LOG").is_none() {
         // Set `RUST_LOG=jwtd=debug` to see debug logs,

@@ -41,3 +41,17 @@ openssl genrsa -out key_prv.pem 2048
 openssl rsa -in key_prv.pem -outform PEM -pubout -out key_pub.pem
 ....
 
+== Troubleshoots
+
+[source,raw]
+....
+error: linker `cc` not found
+  |
+  = note: No such file or directory (os error 2)
+....
+
+[source,raw]
+....
+sudo apt install build-essential
+....
+

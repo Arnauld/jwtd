@@ -16,3 +16,6 @@ tokio = { version = "0.2", features = ["macros"] }
 rust-crypto = "^0.2"
 jsonwebtoken = "7"
 chrono = "0.4"
+# to fix similar error - https://github.com/bluss/indexmap/issues/151
+indexmap = { version = "1.5.2", features = ["std"] }
+
