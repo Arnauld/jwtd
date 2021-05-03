@@ -36,8 +36,9 @@ pub fn issuer() -> String {
 pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
     let header = Header::new(Algorithm::RS256);
     let priv_key = private_key()?;
-    return encode(&header, &claims, &EncodingKey::from_rsa_pem(&priv_key)
-                                        .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?)
+    let encoding_key = EncodingKey::from_rsa_pem(&priv_key)
+                            .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
+    return encode(&header, &claims, &encoding_key)
             .map_err(|err| new_error(ErrorKind::TokenError(err)));
 }
 
@@ -107,17 +108,17 @@ async fn main() {
                     .map(|a| match a.parse() {
                                         Ok(n) => n,
                                         err => {
-                                            eprintln!("error: port not an integer {:?}, fallback on default", err);
+                                            log::error!("port not an integer {:?}, fallback on default", err);
                                             8080
                                         }
                                     })
                     .unwrap_or_else(|_err| {
-                        eprintln!("Port not provided, fallback on default");
+                        log::info!("Port not provided, fallback on default");
                         8080
                     });
 
     let routes = sign;
-    println!("Server starting on port {}", port);
+    log::info!("Server starting on port {}", port);
     warp::serve(routes)
         .run(([127, 0, 0, 1], port))
         .await;
