@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  tags:  [ v** ]
 
 jobs:
 
@@ -14,5 +15,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Build the Docker image
+    - name: Get the version
+      id: get_version
+      run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+    - name: Build the Docker image 'latest'
       run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+      if: ${{ steps.get_version.outputs.VERSION == "master" }}
+    - name: Build the Docker image 'latest'
+      run: docker build . --file Dockerfile --tag technbolts/jwtd:${{ steps.get_version.outputs.VERSION }}
+      if: ${{ steps.get_version.outputs.VERSION != "master" }}
+
