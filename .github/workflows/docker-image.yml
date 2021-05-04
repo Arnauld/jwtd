@@ -18,8 +18,8 @@ jobs:
       run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
     - name: Build the Docker image 'latest'
       run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
-      if: ${{ steps.get_version.outputs.VERSION == "master" }}
+      if: ${{ steps.get_version.outputs.VERSION == 'master' }}
     - name: Build the Docker image 'latest'
       run: docker build . --file Dockerfile --tag technbolts/jwtd:${{ steps.get_version.outputs.VERSION }}
-      if: ${{ steps.get_version.outputs.VERSION != "master" }}
+      if: ${{ steps.get_version.outputs.VERSION != 'master' }}
 
