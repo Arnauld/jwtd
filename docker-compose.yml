@@ -2,7 +2,7 @@ version: '3.5'
 
 services:
   jwtd:
-    image: technbolts/jwtd:v0.2.1
+    image: technbolts/jwtd:v0.2.2
     environment:
         JWT_ISSUER: ${JWT_ISSUER:-jwtd}
         JWT_PRIV_KEY_LOCATION: /jwt/key_prv.pem
