@@ -33,16 +33,22 @@ pub fn issuer() -> String {
     }
 } 
 
-pub fn generate_token<T: Serialize>(claims: &T) -> Result<String> {
+pub fn generate_token<T: Serialize>(
+    claims: &T, 
+    priv_key: Vec<u8>
+) -> Result<String> {
     let header = Header::new(Algorithm::RS256);
-    let priv_key = private_key()?;
     let encoding_key = EncodingKey::from_rsa_pem(&priv_key)
                             .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
     return encode(&header, &claims, &encoding_key)
             .map_err(|err| new_error(ErrorKind::TokenError(err)));
 }
 
-pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result::Result<impl warp::Reply, Infallible> {
+pub async fn sign_claims(
+    body: serde_json::Value, 
+    sign_opts: SignOpts, 
+    private_key: Vec<u8>
+) -> result::Result<impl warp::Reply, Infallible> {
     log::debug!("sign_claims: {:?} // {:?}", body, sign_opts);
     let claims = match sign_opts.generate {
         Some(generate) => {
@@ -71,7 +77,7 @@ pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result
         _ => body.clone(),
     };
 
-    match generate_token(&claims) {
+    match generate_token(&claims, private_key) {
         Ok(token) =>
             Ok(warp::reply::with_status(
                 token,
@@ -87,6 +93,12 @@ pub async fn sign_claims(body: serde_json::Value, sign_opts: SignOpts) -> result
     }
 }
 
+fn with_private_key(
+    priv_key: Vec<u8>,
+) -> impl Filter<Extract = (Vec<u8>,), Error = Infallible> + Clone {
+    warp::any().map(move || priv_key.clone())
+}
+
 #[tokio::main]
 async fn main() {
 
@@ -97,21 +109,22 @@ async fn main() {
     }
     pretty_env_logger::init();
 
+    let private_key = private_key().unwrap();
+    log::info!("Private key loaded");
+
     let sign = warp::path!("sign")
                     .and(warp::post())
                     .and(warp::body::content_length_limit(1024 * 32))
                     .and(warp::body::json())
                     .and(warp::query::<SignOpts>())
+                    .and(with_private_key(private_key.clone()))
                     .and_then(sign_claims);
 
     let port = env::var("PORT")
                     .map(|a| match a.parse() {
-                                        Ok(n) => n,
-                                        err => {
-                                            log::error!("port not an integer {:?}, fallback on default", err);
-                                            8080
-                                        }
-                                    })
+                        Ok(v) => v,
+                        _ => 8080
+                    })
                     .unwrap_or_else(|_err| {
                         log::info!("Port not provided, fallback on default");
                         8080

@@ -10,7 +10,7 @@ If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
       curl  -s -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
             -H "Content-Type: application/json" \
             http://localhost:8080/sign\?generate\=iat,exp,iss \
-            | jq -r . | jwt decode -
+            | jwt decode -
 
 ## Building and Running a Cargo Project
 
