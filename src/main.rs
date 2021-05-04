@@ -133,6 +133,6 @@ async fn main() {
     let routes = sign;
     log::info!("Server starting on port {}", port);
     warp::serve(routes)
-        .run(([127, 0, 0, 1], port))
+        .run(([0, 0, 0, 0], port))
         .await;
 }

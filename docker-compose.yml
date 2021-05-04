@@ -1,0 +1,14 @@
+version: '3.5'
+
+services:
+  jwtd:
+    image: technbolts/jwtd:v0.2.1
+    environment:
+        JWT_ISSUER: ${JWT_ISSUER:-jwtd}
+        JWT_PRIV_KEY_LOCATION: /jwt/key_prv.pem
+    volumes:
+        - ./key_prv.pem:/jwt/key_prv.pem
+    ports:
+        - "8080:8080"
+    restart: unless-stopped
+
