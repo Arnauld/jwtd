@@ -1,5 +1,10 @@
 # JWTd
 
+[![GitHub license](https://img.shields.io/github/license/Arnauld/jwtd.svg)](https://github.com/Arnauld/jwtd/blob/master/LICENSE)
+[![GitHub release](https://img.shields.io/github/release/Arnauld/jwtd.svg)](https://GitHub.com/Arnauld/jwtd/releases/)
+
+
+
 
       curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
             -H "Content-Type: application/json" \
