@@ -4,11 +4,9 @@
 [![GitHub release](https://img.shields.io/github/release/Arnauld/jwtd.svg)](https://GitHub.com/Arnauld/jwtd/releases/)
 
 
-
-
       curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
             -H "Content-Type: application/json" \
-            http://localhost:8080/sign?generate=iat,exp
+            http://localhost:8080/sign?generate=iat,exp,iss
 
 If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
 
@@ -16,6 +14,12 @@ If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
             -H "Content-Type: application/json" \
             http://localhost:8080/sign\?generate\=iat,exp,iss \
             | jwt decode -
+
+Override default token duration (when generating `exp`)
+
+      curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
+            -H "Content-Type: application/json" \
+            http://localhost:8080/sign?generate=iat,exp,iss&duration_seconds=180
 
 ## Building and Running a Cargo Project
 

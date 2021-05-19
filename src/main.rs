@@ -16,6 +16,7 @@ use jwtd::errors::{new_error, ErrorKind, Result};
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
     pub generate: Option<String>,
+    pub duration_seconds: Option<String>,
 }
 
 pub fn private_key() -> Result<Vec<u8>> {
@@ -55,9 +56,10 @@ pub async fn sign_claims(
             match body {
                 serde_json::Value::Object(m) => {
                     let mut m = m.clone();
+                    let duration = sign_opts.duration_seconds.map_or(600, |s| s.parse().unwrap_or(600));
                     let issued_at = Utc::now().timestamp();
                     let expiration = Utc::now()
-                        .checked_add_signed(chrono::Duration::seconds(60))
+                        .checked_add_signed(chrono::Duration::seconds(duration))
                         .expect("valid timestamp")
                         .timestamp();
                     if generate.contains("iat") {
