@@ -30,14 +30,16 @@ pub enum ErrorKind {
     TokenError(jsonwebtoken::errors::Error),
     PrivateKeyError(jsonwebtoken::errors::Error),
     PrivateKeyReadingError(std::io::Error),
-    MissingConfigError(String)
+    MissingConfigError(String),
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self.0 {
             ErrorKind::TokenError(ref err) => write!(f, "Token error: {}", err),
-            ErrorKind::PrivateKeyReadingError(ref err) => write!(f, "PrivateKey reading error: {}", err),
+            ErrorKind::PrivateKeyReadingError(ref err) => {
+                write!(f, "PrivateKey reading error: {}", err)
+            }
             ErrorKind::PrivateKeyError(ref err) => write!(f, "PrivateKey error: {}", err),
             ErrorKind::MissingConfigError(ref err) => write!(f, "MissingConfig error: {}", err),
         }
