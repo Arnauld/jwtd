@@ -122,6 +122,10 @@ async fn main() {
                     .and(with_private_key(private_key.clone()))
                     .and_then(sign_claims);
 
+    let health = warp::path!("health")
+                    .and(warp::get())
+                    .map(|| "OK");
+
     let port = env::var("PORT")
                     .map(|a| match a.parse() {
                         Ok(v) => v,
@@ -132,7 +136,7 @@ async fn main() {
                         8080
                     });
 
-    let routes = sign;
+    let routes = sign.or(health);
     log::info!("Server starting on port {}", port);
     warp::serve(routes)
         .run(([0, 0, 0, 0], port))
