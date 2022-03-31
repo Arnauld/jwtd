@@ -33,7 +33,8 @@ Override default token duration (when generating `exp`)
 
 ## Docker (or without rust env.) build
 
-      docker build -t technbolts/jwtd .
+      docker build -t technbolts/jwtd:LOCAL .
+      docker run technbolts/jwtd:LOCAL
 
 
       docker tag -i 7358d9f4b652 technbolts/jwtd:0.1.0
