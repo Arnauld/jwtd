@@ -1,3 +1,7 @@
+# `v0.3.1` == `v0.2.5`
+
+Semantic versionning purpose
+
 # `v0.2.5`
 
 * expose `/health` endpoint
