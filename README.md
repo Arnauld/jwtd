@@ -2,6 +2,8 @@
 
 [![GitHub license](https://img.shields.io/github/license/Arnauld/jwtd.svg)](https://github.com/Arnauld/jwtd/blob/master/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/Arnauld/jwtd.svg)](https://GitHub.com/Arnauld/jwtd/releases/)
+[![Docker](https://badgen.net/badge/icon/docker?icon=docker&label)](https://hub.docker.com/r/technbolts/jwtd/tags)
+
 
 
       curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
