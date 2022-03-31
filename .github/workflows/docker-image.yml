@@ -16,12 +16,22 @@ jobs:
     - name: Get the version
       id: get_version
       run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+    - name: Timestamp
+      id: timestamp
+      run: echo ::set-output name=TIMESTAMP::$(date +%s)
 
-    - name: Build the Docker image 'latest'
-      run: docker build . --file Dockerfile --tag technbolts/jwtd:$(date +%s)
+    - name: Build the Docker image 'master'
+      run: docker build . --file Dockerfile --tag technbolts/jwtd:${{ steps.timestamp.outputs.TIMESTAMP }}
       if: ${{ github.ref == 'refs/heads/master' }}
+    - name: Build the Docker image 'master' as latest
+      run: docker tag technbolts/jwtd:${{ steps.timestamp.outputs.TIMESTAMP }} technbolts/jwtd:latest
+      if: ${{ github.ref == 'refs/heads/master' }}
+      
     - name: Build the Docker image 'tag'
       run: docker build . --file Dockerfile --tag technbolts/jwtd:${{ steps.get_version.outputs.VERSION }}
+      if: ${{ github.ref != 'refs/heads/master' }}
+    - name: Build the Docker image 'tag' as latest
+      run: docker tag technbolts/jwtd:${{ steps.get_version.outputs.VERSION }} technbolts/jwtd:latest
       if: ${{ github.ref != 'refs/heads/master' }}
 
     - name: Login to DockerHub
@@ -33,5 +43,9 @@ jobs:
 
     - name: Push the Docker image 'tag'
       run: docker push technbolts/jwtd:${{ steps.get_version.outputs.VERSION }}
+      if: ${{ github.ref != 'refs/heads/master' }}
+
+    - name: Push the Docker image 'tag' as latest
+      run: docker push technbolts/jwtd:latest
       if: ${{ github.ref != 'refs/heads/master' }}
 
