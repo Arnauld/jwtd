@@ -57,7 +57,7 @@ pub fn generate_token<T: Serialize>(claims: &T, priv_key: Vec<u8>) -> Result<Str
     let encoding_key = EncodingKey::from_rsa_pem(&priv_key)
         .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
     return encode(&header, &claims, &encoding_key)
-        .map_err(|err| new_error(ErrorKind::TokenError(err)));
+        .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())));
 }
 
 pub async fn sign_claims(
@@ -121,7 +121,7 @@ pub fn decode_token(
         .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
 
     return decode::<serde_json::Value>(token.as_ref(), &decoding_key, &validation)
-        .map_err(|err| new_error(ErrorKind::TokenError(err)))
+        .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())))
         .map(|token_data| token_data.claims);
 }
 
@@ -133,15 +133,28 @@ pub async fn verify_token(
     log::debug!("verify_token: {:?}", body);
 
     match decode_token(body, private_key, validation) {
-        Ok(claims) => Ok(warp::reply::with_status(
-            warp::reply::json(&claims),
-            StatusCode::OK,
-        )),
+        Ok(claims) => {
+            log::info!("Token verification sucessful... {:?}", claims);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&claims),
+                StatusCode::OK,
+            ))
+        }
         Err(err) => {
-            log::error!("Ouch... {}", err);
+            let error_code = match err.kind() {
+                ErrorKind::TokenError(e) => {
+                    log::info!("Token verification failed... {:?}", e);
+                    "TOKEN_ERROR".to_string()
+                }
+                _ => {
+                    log::error!("Token verification failed... {:?}", err);
+                    "SERVER_ERROR".to_string()
+                }
+            };
+
             Ok(warp::reply::with_status(
                 warp::reply::json(&ErrorDTO {
-                    error_code: "SERVER_ERROR".to_string(),
+                    error_code: error_code,
                     message: format!("Something bad happened: {:?}", err).to_string(),
                 }),
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -259,8 +272,7 @@ vwIDAQAB
     #[test]
     fn test_decode() {
         let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
-        let rsa = Rsa::private_key_from_pem(&priv_key);
-        let pub_key = rsa.unwrap().public_key_to_pem().unwrap();
+        let pub_key = to_public_key(priv_key);
 
         let mut validation = default_validation();
         validation.validate_exp = false;

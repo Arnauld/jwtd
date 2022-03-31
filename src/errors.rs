@@ -27,7 +27,7 @@ impl Error {
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum ErrorKind {
-    TokenError(jsonwebtoken::errors::Error),
+    TokenError(jsonwebtoken::errors::ErrorKind),
     PublicKeyError(openssl::error::ErrorStack),
     PrivateKeyError(jsonwebtoken::errors::Error),
     PrivateKeyReadingError(std::io::Error),
@@ -37,7 +37,7 @@ pub enum ErrorKind {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self.0 {
-            ErrorKind::TokenError(ref err) => write!(f, "Token error: {}", err),
+            ErrorKind::TokenError(ref err) => write!(f, "Token error: {:?}", err),
             ErrorKind::PublicKeyError(ref err) => write!(f, "PublicKey error: {}", err),
             ErrorKind::PrivateKeyReadingError(ref err) => {
                 write!(f, "PrivateKey reading error: {}", err)

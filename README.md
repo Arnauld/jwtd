@@ -25,6 +25,9 @@ Override default token duration (when generating `exp`)
 
       cargo build
 
+      source env/.local
+      ./usecase.sh
+
 
 ## Building for Release
 
