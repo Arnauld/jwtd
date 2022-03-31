@@ -1,5 +1,5 @@
 use chrono::prelude::*;
-use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{encode, decode, Algorithm, EncodingKey, DecodingKey, Header, Validation};
 use jwtd::errors::{new_error, ErrorKind, Result};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -8,11 +8,24 @@ use std::env;
 use std::fs;
 use std::result;
 use warp::{http::StatusCode, Filter};
+use bytes::Bytes;
+use openssl::rsa::{Rsa};
 
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
     pub generate: Option<String>,
     pub duration_seconds: Option<String>,
+}
+
+
+#[derive(Debug, Serialize)]
+pub struct ErrorDTO {
+    pub error_code: String,
+    pub message: String,
+}
+
+pub fn load_private_key(location: String) -> Result<Vec<u8>> {
+    return fs::read(location).map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
 }
 
 pub fn private_key() -> Result<Vec<u8>> {
@@ -22,8 +35,7 @@ pub fn private_key() -> Result<Vec<u8>> {
                 .to_string(),
         ))
     })?;
-
-    return fs::read(location).map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
+    return load_private_key(location);
 }
 
 pub fn issuer() -> String {
@@ -93,10 +105,62 @@ pub async fn sign_claims(
     }
 }
 
-fn with_private_key(
-    priv_key: Vec<u8>,
+pub fn decode_token(token: String, priv_key: Vec<u8>, validation: Validation) -> Result<serde_json::Value> {
+    let decoding_key = DecodingKey::from_rsa_pem(&priv_key)
+        .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
+
+    return decode::<serde_json::Value>(token.as_ref(), &decoding_key, &validation)
+        .map_err(|err| new_error(ErrorKind::TokenError(err)))
+        .map(|token_data| token_data.claims);
+}
+
+pub async fn verify_token(
+    body:String,
+    private_key: Vec<u8>,
+    validation: Validation
+) -> result::Result<impl warp::Reply, Infallible> {
+    log::debug!("verify_token: {:?}", body);
+
+    match decode_token(body, private_key, validation) {
+        Ok(claims) => Ok(warp::reply::with_status(warp::reply::json(&claims), StatusCode::OK)),
+        Err(err) => {
+            log::error!("Ouch... {}", err);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&ErrorDTO {
+                    error_code: "SERVER_ERROR".to_string(),
+                    message: format!("Something bad happened: {:?}", err).to_string(),
+                }),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
+}
+
+fn with_key(
+    key: Vec<u8>,
 ) -> impl Filter<Extract = (Vec<u8>,), Error = Infallible> + Clone {
-    warp::any().map(move || priv_key.clone())
+    warp::any().map(move || key.clone())
+}
+
+fn with_validation(
+    validation: Validation
+) -> impl Filter<Extract = (Validation,), Error = Infallible> + Clone {
+    warp::any().map(move || validation.clone())
+}
+
+pub fn body_as_string() -> warp::filters::BoxedFilter<(String,)> {
+    warp::any()
+        .and(warp::filters::body::bytes())
+        .map(|bytes: Bytes| {
+            String::from_utf8(bytes.as_ref().to_vec()).unwrap()
+        }).boxed()
+}
+
+fn default_validation() -> Validation {
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.validate_exp = true;
+    validation.iss = Some(issuer());
+    validation
 }
 
 #[tokio::main]
@@ -116,8 +180,17 @@ async fn main() {
         .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json())
         .and(warp::query::<SignOpts>())
-        .and(with_private_key(private_key.clone()))
+        .and(with_key(private_key.clone()))
         .and_then(sign_claims);
+
+    let validation = default_validation();
+    let verify = warp::path!("verify")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(body_as_string())
+        .and(with_key(private_key.clone()))
+        .and(with_validation(validation.clone()))
+        .and_then(verify_token);
 
     let health = warp::path!("health")
         .and(warp::get())
@@ -133,7 +206,75 @@ async fn main() {
             8080
         });
 
-    let routes = sign.or(health);
+    let routes = sign.or(verify).or(health);
     log::info!("Server starting on port {}", port);
     warp::serve(routes).run(([0, 0, 0, 0], port)).await;
+}
+
+#[cfg(test)]
+mod tests {
+    // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use super::*;
+
+    #[ctor::ctor] // see https://stackoverflow.com/a/63442117
+    fn init() {
+        env::set_var("RUST_LOG", "jwtd=debug");
+        pretty_env_logger::init();
+    }
+
+    #[test]
+    fn test_extract_public_key_from_private_key() {
+        let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
+        let rsa = Rsa::private_key_from_pem(&priv_key);
+        match rsa.unwrap().public_key_to_pem() {
+            Ok(key) =>
+                assert_eq!(String::from_utf8(key).unwrap(), 
+                r#"-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzLbgL2eRdwXPLGB/ncPM
+OLPOZ8ARvvcK20igRX728KZIeJg/ISjJo3F9rKiouwYpKUZkYNonnT/NjVL4TG4f
+4GnLwrJ8uF6IrFZ2N2ZX0AKZ3ukk9q88IvS4CQ1qc4BJvD6kLyn1F2M7vPYw6l+c
+7IfK60tWeZAGnv15NP/XV4ri383Id1KMIW29dntonF1WmQbFKQhLjrpcmA0ZRm6i
+nB9//raZSOCUU8R6WRtw4SWxPZRXsSDR26ZVyIYIUtHeCnP+qUsSGJJtsNmp/WTu
+HnPwfkKmIrkKgnV2ufdRQ1tz3J6ZpYjYraqsHU3qAIc/GyWAtbjg+cBP+evT6ljz
+vwIDAQAB
+-----END PUBLIC KEY-----
+"#.to_string()),
+            Err(err) => panic!("{}", err)
+        }
+    }
+
+    #[test]
+    fn test_decode() {
+        let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
+        let rsa = Rsa::private_key_from_pem(&priv_key);
+        let pub_key = rsa.unwrap().public_key_to_pem().unwrap();
+
+        let mut validation = default_validation();
+        validation.validate_exp = false;
+
+        let raw_claims = r#"
+        {
+            "aid": "AGENT:007",
+            "exp": 1648737097,
+            "huk": [
+              "r001",
+              "r002"
+            ],
+            "iat": 1648736497,
+            "iss": "jwtd"
+        }"#;
+        let expected_claims: serde_json::Value = serde_json::from_str(raw_claims).unwrap();
+
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhaWQiOiJBR0VOVDowMDciLCJleHAiOjE2NDg3MzcwOTcsImh1ayI6WyJyMDAxIiwicjAwMiJdLCJpYXQiOjE2NDg3MzY0OTcsImlzcyI6Imp3dGQifQ.U6L7jor_1-_efkwsvuizUy3Ljswlxwb6QgDvq4cz7fAs3b4MTceBU02ArmV843x5YYjNvuGkyZgMXxWn11IJS2LPcV4P7s0su_zcVczTS9J_mC-8shZ0RdA8eZ9lgE9LPCn9Fma1ZimSgKk5x8930oqt8v-VokC6lLdpT9jjw2Dbr9xQPyJOpulX5mDvaymsN28fyBZM-QbaRa2rOgmUrvLCM_h94TgZ3kHGkbvLZcYaJFqIQRFoc5TXh1pIHv9Odxnl_ut7LCDqMF4ItmlNTq3QrsL3453vQjD-xJrOdqXEruwpvn52t2a3J7DjarFlFBJnP72yafEW2ApEv1nAxg".to_string();
+        match decode_token(token, pub_key, validation) {
+            Ok(claims) => {
+                log::info!("Decoded {:?}", claims);
+                assert_eq!(claims, expected_claims);
+            },
+
+            Err(err) => {
+                panic!("Failed to decode token {}", err);
+            }
+        }
+    }
 }
