@@ -248,7 +248,7 @@ mod tests {
 
     #[test]
     fn test_extract_public_key_from_private_key() {
-        let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
+        let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
         let rsa = Rsa::private_key_from_pem(&priv_key);
         match rsa.unwrap().public_key_to_pem() {
             Ok(key) => assert_eq!(
@@ -271,7 +271,7 @@ vwIDAQAB
 
     #[test]
     fn test_decode() {
-        let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
+        let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
         let pub_key = to_public_key(priv_key).unwrap();
 
         let mut validation = default_validation();

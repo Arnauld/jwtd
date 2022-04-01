@@ -1,1 +1,1 @@
-export JWT_PRIV_KEY_LOCATION=./key_prv.pem
+export JWT_PRIV_KEY_LOCATION=./local/key_prv.pem
