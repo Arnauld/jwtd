@@ -272,7 +272,7 @@ vwIDAQAB
     #[test]
     fn test_decode() {
         let priv_key = load_private_key("./key_prv.pem".to_string()).unwrap();
-        let pub_key = to_public_key(priv_key);
+        let pub_key = to_public_key(priv_key).unwrap();
 
         let mut validation = default_validation();
         validation.validate_exp = false;
