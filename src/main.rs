@@ -25,6 +25,12 @@ pub struct ErrorDTO {
     pub message: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct HealthDTO {
+    pub status: String,
+    pub version: String,
+}
+
 pub fn load_private_key(location: String) -> Result<Vec<u8>> {
     return fs::read(location).map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
 }
@@ -249,7 +255,7 @@ pub async fn decrypt_payload(
                     ))
                 }
             }
-        },
+        }
         Err(err) => {
             log::info!("Decryption failed... {:?}", err);
             Ok(warp::reply::with_status(
@@ -297,6 +303,9 @@ fn default_validation() -> Validation {
 
 #[tokio::main]
 async fn main() {
+    let version = env!("CARGO_PKG_VERSION");
+    log::info!("Starting jwtd {}", version);
+
     if env::var_os("RUST_LOG").is_none() {
         // Set `RUST_LOG=jwtd=debug` to see debug logs,
         // info - only shows access logs.
@@ -341,7 +350,11 @@ async fn main() {
 
     let health = warp::path!("health")
         .and(warp::get())
-        .map(|| Ok(warp::reply::with_status("OK", StatusCode::OK)));
+        .map(|| Ok(warp::reply::with_status(
+            warp::reply::json(&HealthDTO {
+                status: "OK".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            }), StatusCode::OK)));
 
     let port = env::var("PORT")
         .map(|a| match a.parse() {
