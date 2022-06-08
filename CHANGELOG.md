@@ -1,6 +1,11 @@
+# `v0.4.0`
+
+* expose `/encrypt` and `decrypt` endpoints
+* expose `/version` endpoint
+
 # `v0.3.1` == `v0.2.5`
 
-Semantic versionning purpose
+Semantic versioning purpose
 
 # `v0.2.5`
 

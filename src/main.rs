@@ -1,15 +1,17 @@
-use bytes::Bytes;
-use chrono::prelude::*;
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use jwtd::errors::{new_error, ErrorKind, Result};
-use openssl::rsa::Rsa;
-use serde::{Deserialize, Serialize};
-use serde_json;
 use std::convert::Infallible;
 use std::env;
 use std::fs;
 use std::result;
-use warp::{http::StatusCode, Filter};
+
+use bytes::Bytes;
+use chrono::prelude::*;
+use jsonwebtoken::{Algorithm, decode, DecodingKey, encode, EncodingKey, Header, Validation};
+use openssl::rsa::{Padding, Rsa};
+use serde::{Deserialize, Serialize};
+use serde_json;
+use warp::{Filter, http::StatusCode};
+
+use jwtd::errors::{ErrorKind, new_error, Result};
 
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
@@ -21,6 +23,12 @@ pub struct SignOpts {
 pub struct ErrorDTO {
     pub error_code: String,
     pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HealthDTO {
+    pub status: String,
+    pub version: String,
 }
 
 pub fn load_private_key(location: String) -> Result<Vec<u8>> {
@@ -37,7 +45,7 @@ pub fn private_key() -> Result<Vec<u8>> {
     return load_private_key(location);
 }
 
-fn to_public_key(private_key: Vec<u8>) -> Result<Vec<u8>> {
+fn to_public_key(private_key: &Vec<u8>) -> Result<Vec<u8>> {
     let rsa = Rsa::private_key_from_pem(&private_key);
     return rsa
         .unwrap()
@@ -163,20 +171,126 @@ pub async fn verify_token(
     }
 }
 
-fn with_key(key: Vec<u8>) -> impl Filter<Extract = (Vec<u8>,), Error = Infallible> + Clone {
+fn encrypt_content(content: &Bytes, public_key: &Vec<u8>) -> Result<Bytes> {
+    encrypt_content_with_padding(content, public_key, Padding::PKCS1_OAEP)
+}
+
+fn encrypt_content_with_padding(
+    content: &Bytes,
+    public_key: &Vec<u8>,
+    padding: Padding,
+) -> Result<Bytes> {
+    let rsa = Rsa::public_key_from_pem(&public_key).unwrap();
+    let mut buf = vec![0; rsa.size() as usize];
+    match rsa.public_encrypt(&content[..], &mut buf, padding) {
+        Ok(encrypted_len) => Ok(Bytes::copy_from_slice(&buf[0..encrypted_len])),
+        Err(e) => Err(new_error(ErrorKind::EncryptError(format!(
+            "{:?}, (Padding: {:?})",
+            e, padding
+        )))),
+    }
+}
+
+fn decrypt_content(content: &Bytes, private_key: &Vec<u8>) -> Result<Bytes> {
+    decrypt_content_with_padding(content, private_key, Padding::PKCS1_OAEP)
+}
+
+fn decrypt_content_with_padding(
+    content: &Bytes,
+    private_key: &Vec<u8>,
+    padding: Padding,
+) -> Result<Bytes> {
+    let rsa = Rsa::private_key_from_pem(&private_key).unwrap();
+    let mut buf = vec![0; rsa.size() as usize];
+    match rsa.private_decrypt(&content[..], &mut buf, padding) {
+        Ok(decrypted_len) => Ok(Bytes::copy_from_slice(&buf[0..decrypted_len])),
+        Err(e) => Err(new_error(ErrorKind::DecryptError(format!(
+            "{:?}, (Padding: {:?})",
+            e, padding
+        )))),
+    }
+}
+
+pub async fn encrypt_payload(
+    body: Bytes,
+    private_key: Vec<u8>,
+) -> result::Result<impl warp::Reply, Infallible> {
+    log::debug!("encrypt_payload: {:?}", body);
+    match encrypt_content(&body, &private_key) {
+        Ok(content) => {
+            log::info!("Encryption successful... {:?}", content);
+            Ok(warp::reply::with_status(
+                base64::encode(content),
+                StatusCode::OK,
+            ))
+        }
+        Err(err) => Ok(warp::reply::with_status(
+            format!("Encryption failed: {:?}", err).to_string(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+        )),
+    }
+}
+
+pub async fn decrypt_payload(
+    body: Bytes,
+    private_key: Vec<u8>,
+) -> result::Result<impl warp::Reply, Infallible> {
+    log::debug!("decrypt_payload: {:?}", body);
+    match base64::decode(body) {
+        Ok(decoded) => {
+            let decoded_bytes = Bytes::from(decoded);
+            match decrypt_content(&decoded_bytes, &private_key) {
+                Ok(content) => {
+                    log::info!("Decryption successful... {:?}", content);
+                    Ok(warp::reply::with_status(
+                        base64::encode(content),
+                        StatusCode::OK,
+                    ))
+                }
+                Err(err) => {
+                    log::info!("Decryption failed... {:?}", err);
+                    Ok(warp::reply::with_status(
+                        format!("Decryption failed: {:?}", err).to_string(),
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                    ))
+                }
+            }
+        }
+        Err(err) => {
+            log::info!("Decryption failed... {:?}", err);
+            Ok(warp::reply::with_status(
+                format!("Decryption failed (invalid base64 payload) {:?}", err).to_string(),
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ))
+        }
+    }
+}
+
+fn with_key(key: Vec<u8>) -> impl Filter<Extract=(Vec<u8>, ), Error=Infallible> + Clone {
     warp::any().map(move || key.clone())
 }
 
 fn with_validation(
     validation: Validation,
-) -> impl Filter<Extract = (Validation,), Error = Infallible> + Clone {
+) -> impl Filter<Extract=(Validation, ), Error=Infallible> + Clone {
     warp::any().map(move || validation.clone())
 }
 
-pub fn body_as_string() -> warp::filters::BoxedFilter<(String,)> {
+pub fn body_as_string() -> warp::filters::BoxedFilter<(String, )> {
     warp::any()
         .and(warp::filters::body::bytes())
         .map(|bytes: Bytes| String::from_utf8(bytes.as_ref().to_vec()).unwrap())
+        .boxed()
+}
+
+pub fn body_as_bytes() -> warp::filters::BoxedFilter<(Bytes, )> {
+    warp::any().and(warp::filters::body::bytes()).boxed()
+}
+
+pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>, )> {
+    warp::any()
+        .and(warp::filters::body::bytes())
+        .map(|bytes: Bytes| base64::decode(bytes).unwrap())
         .boxed()
 }
 
@@ -189,6 +303,9 @@ fn default_validation() -> Validation {
 
 #[tokio::main]
 async fn main() {
+    let version = env!("CARGO_PKG_VERSION");
+    log::info!("Starting jwtd {}", version);
+
     if env::var_os("RUST_LOG").is_none() {
         // Set `RUST_LOG=jwtd=debug` to see debug logs,
         // info - only shows access logs.
@@ -197,6 +314,7 @@ async fn main() {
     pretty_env_logger::init();
 
     let private_key = private_key().unwrap();
+    let public_key = to_public_key(&private_key).unwrap();
     log::info!("Private key loaded");
 
     let sign = warp::path!("sign")
@@ -212,13 +330,31 @@ async fn main() {
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_string())
-        .and(with_key(to_public_key(private_key).unwrap()))
+        .and(with_key(public_key.clone()))
         .and(with_validation(validation.clone()))
         .and_then(verify_token);
 
+    let encrypt = warp::path!("encrypt")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(body_as_bytes())
+        .and(with_key(public_key.clone()))
+        .and_then(encrypt_payload);
+
+    let decrypt = warp::path!("decrypt")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024 * 32))
+        .and(body_as_bytes())
+        .and(with_key(private_key.clone()))
+        .and_then(decrypt_payload);
+
     let health = warp::path!("health")
         .and(warp::get())
-        .map(|| Ok(warp::reply::with_status("OK", StatusCode::OK)));
+        .map(|| Ok(warp::reply::with_status(
+            warp::reply::json(&HealthDTO {
+                status: "OK".to_string(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            }), StatusCode::OK)));
 
     let port = env::var("PORT")
         .map(|a| match a.parse() {
@@ -230,7 +366,7 @@ async fn main() {
             8080
         });
 
-    let routes = sign.or(verify).or(health);
+    let routes = encrypt.or(decrypt).or(sign).or(verify).or(health);
     log::info!("Server starting on port {}", port);
     warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
@@ -263,7 +399,7 @@ HnPwfkKmIrkKgnV2ufdRQ1tz3J6ZpYjYraqsHU3qAIc/GyWAtbjg+cBP+evT6ljz
 vwIDAQAB
 -----END PUBLIC KEY-----
 "#
-                .to_string()
+                    .to_string()
             ),
             Err(err) => panic!("{}", err),
         }
@@ -272,7 +408,7 @@ vwIDAQAB
     #[test]
     fn test_decode() {
         let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
-        let pub_key = to_public_key(priv_key).unwrap();
+        let pub_key = to_public_key(&priv_key).unwrap();
 
         let mut validation = default_validation();
         validation.validate_exp = false;
@@ -298,6 +434,27 @@ vwIDAQAB
 
             Err(err) => {
                 panic!("Failed to decode token {}", err);
+            }
+        }
+    }
+
+    #[test]
+    fn test_encrypt_decrypt() {
+        let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
+        let pub_key = to_public_key(&priv_key).unwrap();
+        let buff = Bytes::copy_from_slice("Hello Margarett!".as_bytes());
+        match encrypt_content(&buff, &pub_key) {
+            Ok(encrypted) => match decrypt_content(&encrypted, &priv_key) {
+                Ok(decrypted) => {
+                    let actual = String::from_utf8(Vec::from(&decrypted[..])).unwrap();
+                    assert_eq!(actual, "Hello Margarett!".to_string());
+                }
+                Err(err) => {
+                    panic!("Failed to decrypt content {}", err);
+                }
+            },
+            Err(err) => {
+                panic!("Failed to encrypt content {}", err);
             }
         }
     }

@@ -13,7 +13,7 @@ If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
 
       curl  -s -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
             -H "Content-Type: application/json" \
-            http://localhost:8080/sign\?generate\=iat,exp,iss \
+            http://localhost:8080/sign?generate=iat,exp,iss \
             | jwt decode -
 
 Override default token duration (when generating `exp`)
@@ -26,8 +26,13 @@ Override default token duration (when generating `exp`)
 
       cargo build
 
-      source env/.local
-      ./usecase.sh
+      cd local
+      # start jwtd server
+      ./start.sh
+
+      cd local
+      # launch sample usecases
+      ./usecases.sh
 
 
 ## Building for Release
@@ -58,3 +63,13 @@ Override default token duration (when generating `exp`)
       = note: No such file or directory (os error 2)
 
       sudo apt install build-essential
+
+# Buffer
+
+        #!/bin/bash
+        function urldecode() { : "${*//+/ }"; echo -e "${_//%/\\x}"; }
+        DATA_B64ENC=$(cat data.b64-urlencoded)
+        DATA_B64DEC=$(urldecode $DATA_B64ENC)
+        echo $DATA_B64DEC > data.b64
+        cat data.b64 | base64 -d > data.raw
+        openssl rsautl -inkey priv_key.pem -decrypt -oaep -in data.raw
