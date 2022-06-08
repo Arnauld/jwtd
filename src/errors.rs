@@ -32,6 +32,8 @@ pub enum ErrorKind {
     PrivateKeyError(jsonwebtoken::errors::Error),
     PrivateKeyReadingError(std::io::Error),
     MissingConfigError(String),
+    DecryptError(String),
+    EncryptError(String),
 }
 
 impl fmt::Display for Error {
@@ -44,6 +46,8 @@ impl fmt::Display for Error {
             }
             ErrorKind::PrivateKeyError(ref err) => write!(f, "PrivateKey error: {}", err),
             ErrorKind::MissingConfigError(ref err) => write!(f, "MissingConfig error: {}", err),
+            ErrorKind::DecryptError(ref err) => write!(f, "Decrypt error: {}", err),
+            ErrorKind::EncryptError(ref err) => write!(f, "Encrypt error: {}", err),
         }
     }
 }
