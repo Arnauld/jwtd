@@ -28,7 +28,7 @@ Override default token duration (when generating `exp`)
 
       cd local
       # start jwtd server
-      ./start.sh
+      ./start-dev.sh
 
       cd local
       # launch sample usecases

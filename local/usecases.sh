@@ -43,11 +43,11 @@ echo -n "Carmen McCallum" > tmp/data.txt
 ENCRYPTED=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: text/plain" http://localhost:$PORT/encrypt)
 echo "ENCRYPTED (b64)..: $ENCRYPTED"
 echo -n $ENCRYPTED > tmp/encrypted.b64
-echo $ENCRYPTED | base64 -d > tmp/encrypted.raw
+echo $ENCRYPTED | base64 --decode > tmp/encrypted.raw
 
 # decrypt using openssl
 echo "OPENSSL..........: '`openssl rsautl -inkey key_prv.pem -decrypt -oaep -in tmp/encrypted.raw`'"
 
 DECRYPTED=$(curl --silent -X POST -d @tmp/encrypted.b64 -H "Content-Type: text/plain" http://localhost:$PORT/decrypt)
 echo "DECRYPTED (b64)..: '$DECRYPTED'"
-echo "DECRYPTED........: '`echo $DECRYPTED | base64 -d`'"
+echo "DECRYPTED........: '`echo $DECRYPTED | base64 --decode`'"

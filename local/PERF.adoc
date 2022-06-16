@@ -1,0 +1,70 @@
+Really basics raw comparisons on the same computer...
+
+* https://blog.logrocket.com/an-introduction-to-profiling-a-rust-web-application/
+
+
+== WARP
+
+[source,raw]
+....
+   ./perf.sh
+Running 30s test @ http://127.0.0.1:8080/sign
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   514.75ms  200.14ms   1.84s    72.77%
+    Req/Sec    39.76     27.28   180.00     67.43%
+  13934 requests in 30.10s, 7.35MB read
+  Socket errors: connect 155, read 93, write 17, timeout 0
+Requests/sec:    462.92
+Transfer/sec:    249.99KB
+....
+
+[source,raw]
+....
+   ./perf.sh
+Running 30s test @ http://127.0.0.1:8080/sign
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   614.66ms  242.01ms   1.89s    61.93%
+    Req/Sec    53.01     39.07   252.00     69.00%
+  11490 requests in 30.10s, 6.06MB read
+  Socket errors: connect 155, read 2, write 0, timeout 34
+Requests/sec:    381.71
+Transfer/sec:    206.14KB
+....
+
+== ACTIX
+
+`RUST_LOG="jwtd=debug"`
+
+[source, raw]
+....
+   ./perf.sh
+Running 30s test @ http://127.0.0.1:8080/sign
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   582.60ms  336.08ms   1.97s    72.70%
+    Req/Sec    36.67     25.36   200.00     68.40%
+  11687 requests in 30.09s, 6.15MB read
+  Socket errors: connect 155, read 219, write 0, timeout 50
+  Non-2xx or 3xx responses: 23
+Requests/sec:    388.40
+Transfer/sec:    209.42KB
+....
+
+[source,raw]
+....
+   ./perf.sh
+Running 30s test @ http://127.0.0.1:8080/sign
+  12 threads and 400 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   950.41ms  395.26ms   1.99s    68.17%
+    Req/Sec    22.36     19.60   220.00     88.46%
+  6897 requests in 30.10s, 3.62MB read
+  Socket errors: connect 155, read 247, write 0, timeout 85
+  Non-2xx or 3xx responses: 51
+Requests/sec:    229.15
+Transfer/sec:    123.01KB
+....
+
+`RUST_LOG="jwtd=info"`
