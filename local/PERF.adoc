@@ -9,28 +9,27 @@ Really basics raw comparisons on the same computer...
 
 [source,raw]
 ....
-   ./perf.sh
+  ./perf.sh
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   152.31ms   52.22ms 353.26ms   74.33%
-    Req/Sec   132.20     54.66   333.00     68.30%
-  47418 requests in 30.10s, 25.01MB read
-  Socket errors: connect 155, read 83, write 3, timeout 0
-Requests/sec:   1575.39
-Transfer/sec:    850.77KB
+    Latency   151.27ms   61.95ms 350.24ms   61.19%
+    Req/Sec   134.78     89.30   410.00     57.00%
+  47729 requests in 30.10s, 25.17MB read
+  Socket errors: connect 155, read 75, write 9, timeout 0
+Requests/sec:   1585.62
+Transfer/sec:    856.29KB
 
    ./perf.sh
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   180.20ms   88.65ms   1.64s    90.36%
-    Req/Sec   151.52     78.17   530.00     60.73%
-  40331 requests in 30.08s, 21.27MB read
-  Socket errors: connect 155, read 4, write 0, timeout 0
-Requests/sec:   1340.61
-Transfer/sec:    723.98KB
-
+    Latency   162.17ms   65.71ms 610.30ms   57.21%
+    Req/Sec   169.09    107.51   705.00     53.81%
+  44469 requests in 30.09s, 23.45MB read
+  Socket errors: connect 155, read 1, write 3, timeout 0
+Requests/sec:   1477.68
+Transfer/sec:    798.01KB
 ....
 
 == ACTIX
@@ -43,28 +42,23 @@ Transfer/sec:    723.98KB
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   582.60ms  336.08ms   1.97s    72.70%
-    Req/Sec    36.67     25.36   200.00     68.40%
-  11687 requests in 30.09s, 6.15MB read
-  Socket errors: connect 155, read 219, write 0, timeout 50
-  Non-2xx or 3xx responses: 23
-Requests/sec:    388.40
-Transfer/sec:    209.42KB
-....
+    Latency   151.66ms   78.78ms   1.98s    95.59%
+    Req/Sec   181.36     91.33   370.00     60.74%
+  47841 requests in 30.10s, 25.23MB read
+  Socket errors: connect 155, read 60, write 0, timeout 3
+Requests/sec:   1589.53
+Transfer/sec:    858.41KB
 
-[source,raw]
-....
    ./perf.sh
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   950.41ms  395.26ms   1.99s    68.17%
-    Req/Sec    22.36     19.60   220.00     88.46%
-  6897 requests in 30.10s, 3.62MB read
-  Socket errors: connect 155, read 247, write 0, timeout 85
-  Non-2xx or 3xx responses: 51
-Requests/sec:    229.15
-Transfer/sec:    123.01KB
+    Latency   145.08ms   25.14ms 272.36ms   90.39%
+    Req/Sec   174.40    113.42   570.00     54.11%
+  48702 requests in 30.09s, 25.68MB read
+  Socket errors: connect 155, read 65, write 0, timeout 0
+Requests/sec:   1618.68
+Transfer/sec:      0.85MB
 ....
 
 `RUST_LOG="jwtd=info"`

@@ -60,10 +60,8 @@ pub fn issuer() -> String {
     };
 }
 
-pub fn generate_token<T: Serialize>(claims: &T, priv_key: Vec<u8>) -> Result<String> {
+pub fn generate_token<T: Serialize>(claims: &T, encoding_key: &EncodingKey) -> Result<String> {
     let header = Header::new(Algorithm::RS256);
-    let encoding_key = EncodingKey::from_rsa_pem(&priv_key)
-        .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
     return encode(&header, &claims, &encoding_key)
         .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())));
 }
@@ -71,7 +69,7 @@ pub fn generate_token<T: Serialize>(claims: &T, priv_key: Vec<u8>) -> Result<Str
 pub async fn sign_claims(
     body: serde_json::Value,
     sign_opts: SignOpts,
-    private_key: Vec<u8>,
+    encoding_key: EncodingKey,
 ) -> result::Result<impl warp::Reply, Infallible> {
     log::debug!("sign_claims: {:?} // {:?}", body, sign_opts);
     let claims = match sign_opts.generate {
@@ -108,7 +106,7 @@ pub async fn sign_claims(
         _ => body.clone(),
     };
 
-    match generate_token(&claims, private_key) {
+    match generate_token(&claims, &encoding_key) {
         Ok(token) => Ok(warp::reply::with_status(token, StatusCode::OK)),
         Err(err) => {
             log::error!("Ouch... {}", err);
@@ -270,6 +268,10 @@ fn with_key(key: Vec<u8>) -> impl Filter<Extract=(Vec<u8>, ), Error=Infallible> 
     warp::any().map(move || key.clone())
 }
 
+fn with_encoding_key(key: EncodingKey) -> impl Filter<Extract=(EncodingKey, ), Error=Infallible> + Clone {
+    warp::any().map(move || key.clone())
+}
+
 fn with_validation(
     validation: Validation,
 ) -> impl Filter<Extract=(Validation, ), Error=Infallible> + Clone {
@@ -315,6 +317,8 @@ async fn main() {
 
     let private_key = private_key().unwrap();
     let public_key = to_public_key(&private_key).unwrap();
+    let encoding_key = EncodingKey::from_rsa_pem(&private_key).unwrap();
+
     log::info!("Private key loaded");
 
     let sign = warp::path!("sign")
@@ -322,7 +326,7 @@ async fn main() {
         .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json())
         .and(warp::query::<SignOpts>())
-        .and(with_key(private_key.clone()))
+        .and(with_encoding_key(encoding_key))
         .and_then(sign_claims);
 
     let validation = default_validation();
