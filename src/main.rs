@@ -1,7 +1,5 @@
-use std::convert::Infallible;
 use std::env;
 use std::fs;
-use std::result;
 
 use bytes::Bytes;
 use chrono::prelude::*;
@@ -9,15 +7,14 @@ use jsonwebtoken::{Algorithm, decode, DecodingKey, encode, EncodingKey, Header, 
 use openssl::rsa::{Padding, Rsa};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use warp::{Filter, http::StatusCode};
+
+use actix_web::{
+    post, web, App, HttpResponse, HttpServer,
+    http::{header::ContentType, StatusCode},
+};
 
 use jwtd::errors::{ErrorKind, new_error, Result};
 
-#[derive(Debug, Deserialize)]
-pub struct SignOpts {
-    pub generate: Option<String>,
-    pub duration_seconds: Option<String>,
-}
 
 #[derive(Debug, Serialize)]
 pub struct ErrorDTO {
@@ -60,24 +57,32 @@ pub fn issuer() -> String {
     };
 }
 
-pub fn generate_token<T: Serialize>(claims: &T, encoding_key: &EncodingKey) -> Result<String> {
+pub fn generate_token<T: Serialize>(claims: &T, priv_key: &Vec<u8>) -> Result<String> {
     let header = Header::new(Algorithm::RS256);
+    let encoding_key = EncodingKey::from_rsa_pem(priv_key)
+        .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
     return encode(&header, &claims, &encoding_key)
         .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())));
 }
 
-pub async fn sign_claims(
-    body: serde_json::Value,
-    sign_opts: SignOpts,
-    encoding_key: EncodingKey,
-) -> result::Result<impl warp::Reply, Infallible> {
-    log::debug!("sign_claims: {:?} // {:?}", body, sign_opts);
-    let claims = match sign_opts.generate {
-        Some(generate) => match body {
+#[derive(Debug, Deserialize)]
+pub struct SignOpts {
+    pub generate: Option<String>,
+    pub duration_seconds: Option<String>,
+}
+
+#[post("/sign")]
+async fn sign(app_state: web::Data<AppState>,
+              body: web::Json<serde_json::Value>,
+              sign_opts: web::Query<SignOpts>) -> HttpResponse {
+    log::debug!("sign_claims: {:?} // {:?}", body, &sign_opts);
+    let claims = match &sign_opts.generate {
+        Some(generate) => match body.0 {
             serde_json::Value::Object(m) => {
                 let mut m = m.clone();
                 let duration = sign_opts
                     .duration_seconds
+                    .as_ref()
                     .map_or(600, |s| s.parse().unwrap_or(600));
                 let issued_at = Utc::now().timestamp();
                 let expiration = Utc::now()
@@ -97,7 +102,7 @@ pub async fn sign_claims(
                     );
                 }
                 if generate.contains("iss") {
-                    m.insert("iss".to_string(), serde_json::Value::String(issuer()));
+                    m.insert("iss".to_string(), serde_json::Value::String(app_state.issuer.clone()));
                 }
                 serde_json::Value::Object(m)
             }
@@ -106,45 +111,46 @@ pub async fn sign_claims(
         _ => body.clone(),
     };
 
-    match generate_token(&claims, &encoding_key) {
-        Ok(token) => Ok(warp::reply::with_status(token, StatusCode::OK)),
+    match generate_token(&claims, &app_state.private_key) {
+        Ok(token) =>
+            HttpResponse::build(StatusCode::OK)
+                .insert_header(ContentType::plaintext())
+                .body(token),
         Err(err) => {
             log::error!("Ouch... {}", err);
-            Ok(warp::reply::with_status(
-                format!("Something bad happened: {:?}", err).to_string(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
+            HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+                .insert_header(ContentType::plaintext())
+                .body(format!("Something bad happened: {:?}", err).to_string())
         }
     }
 }
 
+
 pub fn decode_token(
     token: String,
-    priv_key: Vec<u8>,
-    validation: Validation,
+    priv_key: &Vec<u8>,
+    validation: &Validation,
 ) -> Result<serde_json::Value> {
-    let decoding_key = DecodingKey::from_rsa_pem(&priv_key)
+    let decoding_key = DecodingKey::from_rsa_pem(priv_key)
         .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
 
-    return decode::<serde_json::Value>(token.as_ref(), &decoding_key, &validation)
+    return decode::<serde_json::Value>(token.as_ref(), &decoding_key, validation)
         .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())))
         .map(|token_data| token_data.claims);
 }
 
-pub async fn verify_token(
+
+#[post("/verify")]
+pub async fn verify(
+    app_state: web::Data<AppState>,
     body: String,
-    private_key: Vec<u8>,
-    validation: Validation,
-) -> result::Result<impl warp::Reply, Infallible> {
+) -> HttpResponse {
     log::debug!("verify_token: {:?}", body);
 
-    match decode_token(body, private_key, validation) {
+    match decode_token(body, &app_state.public_key, &app_state.validation) {
         Ok(claims) => {
             log::info!("Token verification sucessful... {:?}", claims);
-            Ok(warp::reply::with_status(
-                warp::reply::json(&claims),
-                StatusCode::OK,
-            ))
+            HttpResponse::Ok().json(claims)
         }
         Err(err) => {
             let error_code = match err.kind() {
@@ -158,13 +164,11 @@ pub async fn verify_token(
                 }
             };
 
-            Ok(warp::reply::with_status(
-                warp::reply::json(&ErrorDTO {
-                    error_code: error_code,
+            HttpResponse::InternalServerError()
+                .json(ErrorDTO {
+                    error_code,
                     message: format!("Something bad happened: {:?}", err).to_string(),
-                }),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
+                })
         }
     }
 }
@@ -209,91 +213,69 @@ fn decrypt_content_with_padding(
     }
 }
 
-pub async fn encrypt_payload(
-    body: Bytes,
-    private_key: Vec<u8>,
-) -> result::Result<impl warp::Reply, Infallible> {
-    log::debug!("encrypt_payload: {:?}", body);
-    match encrypt_content(&body, &private_key) {
+#[post("/encrypt")]
+pub async fn encrypt(
+    app_state: web::Data<AppState>,
+    body: web::Bytes,
+) -> HttpResponse {
+    log::debug!("encrypt: {:?}", body);
+    match encrypt_content(&body, &app_state.public_key) {
         Ok(content) => {
             log::info!("Encryption successful... {:?}", content);
-            Ok(warp::reply::with_status(
-                base64::encode(content),
-                StatusCode::OK,
-            ))
+            HttpResponse::Ok()
+                .body(base64::encode(content))
         }
-        Err(err) => Ok(warp::reply::with_status(
-            format!("Encryption failed: {:?}", err).to_string(),
-            StatusCode::INTERNAL_SERVER_ERROR,
-        )),
+        Err(err) =>
+            HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+                .insert_header(ContentType::plaintext())
+                .body(format!("Encryption failed: {:?}", err).to_string())
     }
 }
 
-pub async fn decrypt_payload(
-    body: Bytes,
-    private_key: Vec<u8>,
-) -> result::Result<impl warp::Reply, Infallible> {
-    log::debug!("decrypt_payload: {:?}", body);
+
+#[post("/decrypt")]
+pub async fn decrypt(
+    app_state: web::Data<AppState>,
+    body: web::Bytes,
+) -> HttpResponse {
+    log::debug!("decrypt: {:?}", body);
     match base64::decode(body) {
         Ok(decoded) => {
             let decoded_bytes = Bytes::from(decoded);
-            match decrypt_content(&decoded_bytes, &private_key) {
+            match decrypt_content(&decoded_bytes, &app_state.private_key) {
                 Ok(content) => {
                     log::info!("Decryption successful... {:?}", content);
-                    Ok(warp::reply::with_status(
-                        base64::encode(content),
-                        StatusCode::OK,
-                    ))
+                    HttpResponse::build(StatusCode::OK)
+                        .insert_header(ContentType::plaintext())
+                        .body(base64::encode(content))
                 }
                 Err(err) => {
                     log::info!("Decryption failed... {:?}", err);
-                    Ok(warp::reply::with_status(
-                        format!("Decryption failed: {:?}", err).to_string(),
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                    ))
+                    HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+                        .insert_header(ContentType::plaintext())
+                        .body(format!("Decryption failed: {:?}", err).to_string())
                 }
             }
         }
         Err(err) => {
             log::info!("Decryption failed... {:?}", err);
-            Ok(warp::reply::with_status(
-                format!("Decryption failed (invalid base64 payload) {:?}", err).to_string(),
-                StatusCode::INTERNAL_SERVER_ERROR,
-            ))
+            HttpResponse::build(StatusCode::INTERNAL_SERVER_ERROR)
+                .insert_header(ContentType::plaintext())
+                .body(format!("Decryption failed (invalid base64 payload): {:?}", err).to_string())
         }
     }
 }
 
-fn with_key(key: Vec<u8>) -> impl Filter<Extract=(Vec<u8>, ), Error=Infallible> + Clone {
-    warp::any().map(move || key.clone())
-}
 
-fn with_encoding_key(key: EncodingKey) -> impl Filter<Extract=(EncodingKey, ), Error=Infallible> + Clone {
-    warp::any().map(move || key.clone())
-}
-
-fn with_validation(
-    validation: Validation,
-) -> impl Filter<Extract=(Validation, ), Error=Infallible> + Clone {
-    warp::any().map(move || validation.clone())
-}
-
-pub fn body_as_string() -> warp::filters::BoxedFilter<(String, )> {
-    warp::any()
-        .and(warp::filters::body::bytes())
-        .map(|bytes: Bytes| String::from_utf8(bytes.as_ref().to_vec()).unwrap())
-        .boxed()
-}
-
-pub fn body_as_bytes() -> warp::filters::BoxedFilter<(Bytes, )> {
-    warp::any().and(warp::filters::body::bytes()).boxed()
-}
-
-pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>, )> {
-    warp::any()
-        .and(warp::filters::body::bytes())
-        .map(|bytes: Bytes| base64::decode(bytes).unwrap())
-        .boxed()
+#[post("/health")]
+pub async fn health(
+    app_state: web::Data<AppState>,
+) -> HttpResponse {
+    HttpResponse::Ok()
+        .json(HealthDTO {
+            status: "OK".to_string(),
+            version: app_state.version.clone(),
+        })
 }
 
 fn default_validation() -> Validation {
@@ -303,11 +285,17 @@ fn default_validation() -> Validation {
     validation
 }
 
-#[tokio::main]
-async fn main() {
-    let version = env!("CARGO_PKG_VERSION");
-    log::info!("Starting jwtd {}", version);
+// This struct represents state
+pub struct AppState {
+    private_key: Vec<u8>,
+    public_key: Vec<u8>,
+    issuer: String,
+    version: String,
+    validation: Validation,
+}
 
+#[actix_web::main]
+async fn main() -> std::io::Result<()> {
     if env::var_os("RUST_LOG").is_none() {
         // Set `RUST_LOG=jwtd=debug` to see debug logs,
         // info - only shows access logs.
@@ -315,50 +303,22 @@ async fn main() {
     }
     pretty_env_logger::init();
 
+    let version = env!("CARGO_PKG_VERSION");
+    log::info!("Starting jwtd {}", version);
+
     let private_key = private_key().unwrap();
     let public_key = to_public_key(&private_key).unwrap();
-    let encoding_key = EncodingKey::from_rsa_pem(&private_key).unwrap();
-
     log::info!("Private key loaded");
-
-    let sign = warp::path!("sign")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 32))
-        .and(warp::body::json())
-        .and(warp::query::<SignOpts>())
-        .and(with_encoding_key(encoding_key))
-        .and_then(sign_claims);
-
+    let issuer = issuer();
     let validation = default_validation();
-    let verify = warp::path!("verify")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 32))
-        .and(body_as_string())
-        .and(with_key(public_key.clone()))
-        .and(with_validation(validation.clone()))
-        .and_then(verify_token);
 
-    let encrypt = warp::path!("encrypt")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 32))
-        .and(body_as_bytes())
-        .and(with_key(public_key.clone()))
-        .and_then(encrypt_payload);
-
-    let decrypt = warp::path!("decrypt")
-        .and(warp::post())
-        .and(warp::body::content_length_limit(1024 * 32))
-        .and(body_as_bytes())
-        .and(with_key(private_key.clone()))
-        .and_then(decrypt_payload);
-
-    let health = warp::path!("health")
-        .and(warp::get())
-        .map(|| Ok(warp::reply::with_status(
-            warp::reply::json(&HealthDTO {
-                status: "OK".to_string(),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-            }), StatusCode::OK)));
+    let app_state = web::Data::new(AppState {
+        public_key,
+        private_key,
+        issuer,
+        version: version.to_string(),
+        validation,
+    });
 
     let port = env::var("PORT")
         .map(|a| match a.parse() {
@@ -370,9 +330,28 @@ async fn main() {
             8080
         });
 
-    let routes = encrypt.or(decrypt).or(sign).or(verify).or(health);
     log::info!("Server starting on port {}", port);
-    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
+    HttpServer::new(move || {
+        let json_config = web::JsonConfig::default()
+            .limit(4096)
+            .error_handler(|err, _req| {
+                // create custom error response
+                actix_web::error::InternalError::from_response(err, HttpResponse::Conflict().finish())
+                    .into()
+            });
+
+        App::new()
+            .app_data(app_state.clone())
+            .app_data(json_config)
+            .service(sign)
+            .service(verify)
+            .service(health)
+            .service(encrypt)
+            .service(decrypt)
+    })
+        .bind(("0.0.0.0", port))?
+        .run()
+        .await
 }
 
 #[cfg(test)]
@@ -431,7 +410,7 @@ vwIDAQAB
         let expected_claims: serde_json::Value = serde_json::from_str(raw_claims).unwrap();
 
         let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhaWQiOiJBR0VOVDowMDciLCJleHAiOjE2NDg3MzcwOTcsImh1ayI6WyJyMDAxIiwicjAwMiJdLCJpYXQiOjE2NDg3MzY0OTcsImlzcyI6Imp3dGQifQ.U6L7jor_1-_efkwsvuizUy3Ljswlxwb6QgDvq4cz7fAs3b4MTceBU02ArmV843x5YYjNvuGkyZgMXxWn11IJS2LPcV4P7s0su_zcVczTS9J_mC-8shZ0RdA8eZ9lgE9LPCn9Fma1ZimSgKk5x8930oqt8v-VokC6lLdpT9jjw2Dbr9xQPyJOpulX5mDvaymsN28fyBZM-QbaRa2rOgmUrvLCM_h94TgZ3kHGkbvLZcYaJFqIQRFoc5TXh1pIHv9Odxnl_ut7LCDqMF4ItmlNTq3QrsL3453vQjD-xJrOdqXEruwpvn52t2a3J7DjarFlFBJnP72yafEW2ApEv1nAxg".to_string();
-        match decode_token(token, pub_key, validation) {
+        match decode_token(token, &pub_key, &validation) {
             Ok(claims) => {
                 assert_eq!(claims, expected_claims);
             }
