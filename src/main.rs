@@ -57,10 +57,8 @@ pub fn issuer() -> String {
     };
 }
 
-pub fn generate_token<T: Serialize>(claims: &T, priv_key: &Vec<u8>) -> Result<String> {
+pub fn generate_token<T: Serialize>(claims: &T, encoding_key: &EncodingKey) -> Result<String> {
     let header = Header::new(Algorithm::RS256);
-    let encoding_key = EncodingKey::from_rsa_pem(priv_key)
-        .map_err(|err| new_error(ErrorKind::PrivateKeyError(err)))?;
     return encode(&header, &claims, &encoding_key)
         .map_err(|err| new_error(ErrorKind::TokenError(err.into_kind())));
 }
@@ -111,7 +109,7 @@ async fn sign(app_state: web::Data<AppState>,
         _ => body.clone(),
     };
 
-    match generate_token(&claims, &app_state.private_key) {
+    match generate_token(&claims, &app_state.encoding_key) {
         Ok(token) =>
             HttpResponse::build(StatusCode::OK)
                 .insert_header(ContentType::plaintext())
@@ -289,6 +287,7 @@ fn default_validation() -> Validation {
 pub struct AppState {
     private_key: Vec<u8>,
     public_key: Vec<u8>,
+    encoding_key: EncodingKey,
     issuer: String,
     version: String,
     validation: Validation,
@@ -311,6 +310,7 @@ async fn main() -> std::io::Result<()> {
     log::info!("Private key loaded");
     let issuer = issuer();
     let validation = default_validation();
+    let encoding_key = EncodingKey::from_rsa_pem(&private_key).unwrap();
 
     let app_state = web::Data::new(AppState {
         public_key,
@@ -318,6 +318,7 @@ async fn main() -> std::io::Result<()> {
         issuer,
         version: version.to_string(),
         validation,
+        encoding_key
     });
 
     let port = env::var("PORT")

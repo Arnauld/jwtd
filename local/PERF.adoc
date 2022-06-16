@@ -34,7 +34,6 @@ Transfer/sec:    798.01KB
 
 == ACTIX
 
-`RUST_LOG="jwtd=debug"`
 
 [source, raw]
 ....
@@ -42,23 +41,22 @@ Transfer/sec:    798.01KB
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   151.66ms   78.78ms   1.98s    95.59%
-    Req/Sec   181.36     91.33   370.00     60.74%
-  47841 requests in 30.10s, 25.23MB read
-  Socket errors: connect 155, read 60, write 0, timeout 3
-Requests/sec:   1589.53
-Transfer/sec:    858.41KB
+    Latency   154.20ms   59.84ms   1.75s    97.96%
+    Req/Sec   129.74     55.37   340.00     68.15%
+  46576 requests in 30.10s, 24.56MB read
+  Socket errors: connect 155, read 60, write 0, timeout 0
+Requests/sec:   1547.19
+Transfer/sec:    835.54KB
 
    ./perf.sh
+perf_scripts/sign.lua: cannot open perf_scripts/sign.lua: Too many open files
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   145.08ms   25.14ms 272.36ms   90.39%
-    Req/Sec   174.40    113.42   570.00     54.11%
-  48702 requests in 30.09s, 25.68MB read
-  Socket errors: connect 155, read 65, write 0, timeout 0
-Requests/sec:   1618.68
-Transfer/sec:      0.85MB
+    Latency   160.77ms   80.21ms   1.97s    98.05%
+    Req/Sec   172.05     78.99   350.00     64.58%
+  44977 requests in 30.08s, 23.72MB read
+  Socket errors: connect 155, read 65, write 0, timeout 4
+Requests/sec:   1495.34
+Transfer/sec:    807.54KB
 ....
-
-`RUST_LOG="jwtd=info"`
