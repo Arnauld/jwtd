@@ -3,6 +3,8 @@ Really basics raw comparisons on the same computer...
 * https://blog.logrocket.com/an-introduction-to-profiling-a-rust-web-application/
 
 
+`./start-release.sh`
+
 == WARP
 
 [source,raw]
@@ -11,26 +13,24 @@ Really basics raw comparisons on the same computer...
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   514.75ms  200.14ms   1.84s    72.77%
-    Req/Sec    39.76     27.28   180.00     67.43%
-  13934 requests in 30.10s, 7.35MB read
-  Socket errors: connect 155, read 93, write 17, timeout 0
-Requests/sec:    462.92
-Transfer/sec:    249.99KB
-....
+    Latency   152.31ms   52.22ms 353.26ms   74.33%
+    Req/Sec   132.20     54.66   333.00     68.30%
+  47418 requests in 30.10s, 25.01MB read
+  Socket errors: connect 155, read 83, write 3, timeout 0
+Requests/sec:   1575.39
+Transfer/sec:    850.77KB
 
-[source,raw]
-....
    ./perf.sh
 Running 30s test @ http://127.0.0.1:8080/sign
   12 threads and 400 connections
   Thread Stats   Avg      Stdev     Max   +/- Stdev
-    Latency   614.66ms  242.01ms   1.89s    61.93%
-    Req/Sec    53.01     39.07   252.00     69.00%
-  11490 requests in 30.10s, 6.06MB read
-  Socket errors: connect 155, read 2, write 0, timeout 34
-Requests/sec:    381.71
-Transfer/sec:    206.14KB
+    Latency   180.20ms   88.65ms   1.64s    90.36%
+    Req/Sec   151.52     78.17   530.00     60.73%
+  40331 requests in 30.08s, 21.27MB read
+  Socket errors: connect 155, read 4, write 0, timeout 0
+Requests/sec:   1340.61
+Transfer/sec:    723.98KB
+
 ....
 
 == ACTIX
