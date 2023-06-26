@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::env;
 use std::fs;
@@ -5,13 +6,13 @@ use std::result;
 
 use bytes::Bytes;
 use chrono::prelude::*;
-use jsonwebtoken::{Algorithm, decode, DecodingKey, encode, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use openssl::rsa::{Padding, Rsa};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use warp::{Filter, http::StatusCode};
+use warp::{http::StatusCode, reject, Filter, Rejection};
 
-use jwtd::errors::{ErrorKind, new_error, Result};
+use jwtd::errors::{new_error, ErrorKind, Result};
 
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
@@ -264,32 +265,34 @@ pub async fn decrypt_payload(
     }
 }
 
-fn with_key(key: Vec<u8>) -> impl Filter<Extract=(Vec<u8>, ), Error=Infallible> + Clone {
+fn with_key(key: Vec<u8>) -> impl Filter<Extract = (Vec<u8>,), Error = Infallible> + Clone {
     warp::any().map(move || key.clone())
 }
 
-fn with_encoding_key(key: EncodingKey) -> impl Filter<Extract=(EncodingKey, ), Error=Infallible> + Clone {
+fn with_encoding_key(
+    key: EncodingKey,
+) -> impl Filter<Extract = (EncodingKey,), Error = Infallible> + Clone {
     warp::any().map(move || key.clone())
 }
 
 fn with_validation(
     validation: Validation,
-) -> impl Filter<Extract=(Validation, ), Error=Infallible> + Clone {
+) -> impl Filter<Extract = (Validation,), Error = Infallible> + Clone {
     warp::any().map(move || validation.clone())
 }
 
-pub fn body_as_string() -> warp::filters::BoxedFilter<(String, )> {
+pub fn body_as_string() -> warp::filters::BoxedFilter<(String,)> {
     warp::any()
         .and(warp::filters::body::bytes())
         .map(|bytes: Bytes| String::from_utf8(bytes.as_ref().to_vec()).unwrap())
         .boxed()
 }
 
-pub fn body_as_bytes() -> warp::filters::BoxedFilter<(Bytes, )> {
+pub fn body_as_bytes() -> warp::filters::BoxedFilter<(Bytes,)> {
     warp::any().and(warp::filters::body::bytes()).boxed()
 }
 
-pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>, )> {
+pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>,)> {
     warp::any()
         .and(warp::filters::body::bytes())
         .map(|bytes: Bytes| base64::decode(bytes).unwrap())
@@ -299,8 +302,38 @@ pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>, )> {
 fn default_validation() -> Validation {
     let mut validation = Validation::new(Algorithm::RS256);
     validation.validate_exp = true;
-    validation.iss = Some(issuer());
+    validation.set_issuer(&[issuer()]);
     validation
+}
+
+#[derive(Debug)]
+pub struct Unauthorized;
+#[derive(Debug)]
+pub struct MissingApiKey;
+
+impl reject::Reject for Unauthorized {}
+impl reject::Reject for MissingApiKey {}
+
+fn api_keys_validation(
+    api_keys: HashSet<String>,
+) -> impl Filter<Extract = ((),), Error = Rejection> + Clone {
+    warp::header::optional::<String>("x-api-key")
+        .map(move |n: Option<String>| (n, api_keys.clone()))
+        .and_then(|t: (Option<String>, HashSet<String>)| async move {
+            if t.1.is_empty() {
+                Ok(())
+            }
+            else if let Some(hdr) = t.0 {
+                if t.1.contains(&hdr) {
+                    Ok(())
+                }
+                else {
+                    Err(reject::custom(Unauthorized))
+                }
+            } else {
+                Err(reject::custom(MissingApiKey))
+            }
+        })
 }
 
 #[tokio::main]
@@ -321,7 +354,20 @@ async fn main() {
 
     log::info!("Private key loaded");
 
+    let api_keys: HashSet<String> = match env::var("API_KEYS") {
+        Ok(keys) => {
+            log::info!("API_KEYS loaded");
+            keys.split(",").into_iter().map(|s| s.to_string()).collect()
+        }
+        _ => {
+            log::info!("No API_KEYS defined");
+            HashSet::new()
+        }
+    };
+
     let sign = warp::path!("sign")
+        .and(api_keys_validation(api_keys.clone()))
+        .untuple_one()
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 32))
         .and(warp::body::json())
@@ -331,6 +377,8 @@ async fn main() {
 
     let validation = default_validation();
     let verify = warp::path!("verify")
+        .and(api_keys_validation(api_keys.clone()))
+        .untuple_one()
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_string())
@@ -339,6 +387,8 @@ async fn main() {
         .and_then(verify_token);
 
     let encrypt = warp::path!("encrypt")
+        .and(api_keys_validation(api_keys.clone()))
+        .untuple_one()
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_bytes())
@@ -346,19 +396,23 @@ async fn main() {
         .and_then(encrypt_payload);
 
     let decrypt = warp::path!("decrypt")
+        .and(api_keys_validation(api_keys.clone()))
+        .untuple_one()
         .and(warp::post())
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_bytes())
         .and(with_key(private_key.clone()))
         .and_then(decrypt_payload);
 
-    let health = warp::path!("health")
-        .and(warp::get())
-        .map(|| Ok(warp::reply::with_status(
+    let health = warp::path!("health").and(warp::get()).map(|| {
+        Ok(warp::reply::with_status(
             warp::reply::json(&HealthDTO {
                 status: "OK".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
-            }), StatusCode::OK)));
+            }),
+            StatusCode::OK,
+        ))
+    });
 
     let port = env::var("PORT")
         .map(|a| match a.parse() {
@@ -403,7 +457,7 @@ HnPwfkKmIrkKgnV2ufdRQ1tz3J6ZpYjYraqsHU3qAIc/GyWAtbjg+cBP+evT6ljz
 vwIDAQAB
 -----END PUBLIC KEY-----
 "#
-                    .to_string()
+                .to_string()
             ),
             Err(err) => panic!("{}", err),
         }
