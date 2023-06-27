@@ -14,6 +14,8 @@ use warp::{http::StatusCode, reject, Filter, Rejection};
 use jwtd::errors::{new_error, ErrorKind, Result};
 use time::{OffsetDateTime, ext::NumericalDuration};
 
+use base64::{Engine as _, engine::general_purpose};
+
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
     pub generate: Option<String>,
@@ -219,7 +221,7 @@ pub async fn encrypt_payload(
         Ok(content) => {
             log::info!("Encryption successful... {:?}", content);
             Ok(warp::reply::with_status(
-                base64::encode(content),
+                general_purpose::STANDARD_NO_PAD.encode(content),
                 StatusCode::OK,
             ))
         }
@@ -235,14 +237,14 @@ pub async fn decrypt_payload(
     private_key: Vec<u8>,
 ) -> result::Result<impl warp::Reply, Infallible> {
     log::debug!("decrypt_payload: {:?}", body);
-    match base64::decode(body) {
+    match general_purpose::STANDARD_NO_PAD.decode(body) {
         Ok(decoded) => {
             let decoded_bytes = Bytes::from(decoded);
             match decrypt_content(&decoded_bytes, &private_key) {
                 Ok(content) => {
                     log::info!("Decryption successful... {:?}", content);
                     Ok(warp::reply::with_status(
-                        base64::encode(content),
+                        general_purpose::STANDARD_NO_PAD.encode(content),
                         StatusCode::OK,
                     ))
                 }
@@ -295,7 +297,7 @@ pub fn body_as_bytes() -> warp::filters::BoxedFilter<(Bytes,)> {
 pub fn body_as_base64() -> warp::filters::BoxedFilter<(Vec<u8>,)> {
     warp::any()
         .and(warp::filters::body::bytes())
-        .map(|bytes: Bytes| base64::decode(bytes).unwrap())
+        .map(|bytes: Bytes| general_purpose::STANDARD_NO_PAD.decode(bytes).unwrap())
         .boxed()
 }
 
