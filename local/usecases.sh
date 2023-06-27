@@ -82,5 +82,17 @@ echo "========================================================================="
 echo "  BCRYPT/CHECK "
 echo "========================================================================="
 echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGFP/c5kwb7Xz3H15/1lXFEZK", "plain":"CarmenMcCallum"}' > tmp/data.txt
-VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: text/plain" http://localhost:$PORT/bcrypt/verify)
-echo "VERIFY.....: $VERIFY"
+VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: application/json" http://localhost:$PORT/bcrypt/check)
+echo "VERIFY..(OK)................: $VERIFY"
+
+echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGFP/c5kwb7Xz3H15/1lXFEZK", "plain":"Travis"}' > tmp/data.txt
+VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: application/json" http://localhost:$PORT/bcrypt/check)
+echo "VERIFY..(NOK)...............: $VERIFY"
+
+echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGF", "plain":"Travis"}' > tmp/data.txt
+VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: application/json" http://localhost:$PORT/bcrypt/check)
+echo "VERIFY..(bcrypt invalid 1)..: $VERIFY"
+
+echo -n '{"hash":"hey!", "plain":"Travis"}' > tmp/data.txt
+VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: application/json" http://localhost:$PORT/bcrypt/check)
+echo "VERIFY..(bcrypt invalid 2)..: $VERIFY"
