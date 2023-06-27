@@ -336,6 +336,52 @@ fn api_keys_validation(
         })
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct BcryptCheckDTO {
+    pub hash: String,
+    pub plain: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BcryptCheckResultDTO {
+    pub password_valid: bool,
+    pub error: Option<String>,
+}
+
+fn bcrypt_check_body() -> impl Filter<Extract = (BcryptCheckDTO,), Error = warp::Rejection> + Clone {
+    warp::body::content_length_limit(1024 * 16).and(warp::body::json())
+}
+
+
+pub async fn bcryp_check(
+    body: BcryptCheckDTO,
+) -> result::Result<impl warp::Reply, Infallible> {
+    log::debug!("bcryp_check: {:?}", body);
+
+    match bcrypt::verify(body.plain, body.hash.as_str()) {
+        Ok(valid) => {
+            log::info!("Bcrypt check: {:?}", result);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&BcryptCheckResultDTO {
+                    password_valid: valid,
+                    error: None
+                }),
+                StatusCode::OK,
+            ))
+        }
+        Err(e) => {
+            log::info!("Bcrypt check: {:?}", result);
+            Ok(warp::reply::with_status(
+                warp::reply::json(&BcryptCheckResultDTO {
+                    password_valid: false,
+                    error: Some(format!("Oops: {:?}", e))
+                }),
+                StatusCode::BAD_REQUEST,
+            ))
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let version = env!("CARGO_PKG_VERSION");
@@ -364,6 +410,11 @@ async fn main() {
             HashSet::new()
         }
     };
+
+    let bcrypt_check = warp::path!("bcrypt/check")
+        .and(warp::post())
+        .and(bcrypt_check_body())
+        .and_then(bcrypt_check);
 
     let sign = warp::path!("sign")
         .and(api_keys_validation(api_keys.clone()))
@@ -425,7 +476,7 @@ async fn main() {
         });
 
     let routes = encrypt.or(decrypt).or(sign).or(verify).or(health);
-    log::info!("Server starting on port {}", port);
+    log::info!("Server starting on port {:?}", port);
     warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
 

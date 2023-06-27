@@ -75,3 +75,12 @@ echo "OPENSSL..........: '`openssl rsautl -inkey key_prv.pem -decrypt -oaep -in 
 DECRYPTED=$(curl --silent -X POST -d @tmp/encrypted.b64 -H "Content-Type: text/plain" -H "x-api-key: $API_KEY" http://localhost:$PORT/decrypt)
 echo "DECRYPTED (b64)..: '$DECRYPTED'"
 echo "DECRYPTED........: '`echo $DECRYPTED | base64 --decode`'"
+
+
+echo ""
+echo "========================================================================="
+echo "  BCRYPT/CHECK "
+echo "========================================================================="
+echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGFP/c5kwb7Xz3H15/1lXFEZK", "plain":"CarmenMcCallum"}' > tmp/data.txt
+VERIFY=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: text/plain" http://localhost:$PORT/bcrypt/verify)
+echo "VERIFY.....: $VERIFY"
