@@ -15,10 +15,10 @@ jobs:
     - uses: actions/checkout@v2
     - name: Get the version
       id: get_version
-      run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+      run: echo "VERSION=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_OUTPUT
     - name: Timestamp
       id: timestamp
-      run: echo ::set-output name=TIMESTAMP::$(date +%s)
+      run: echo "TIMESTAMP=$(date +%s)" >> $GITHUB_OUTPUT
 
     - name: Build the Docker image 'master'
       run: docker build . --file Dockerfile --tag technbolts/jwtd:${{ steps.timestamp.outputs.TIMESTAMP }}
