@@ -35,9 +35,17 @@ Override default token duration (when generating `exp`)
       ./usecases.sh
 
 
-## Building for Release
+## Release
 
+      # 1. update Cargo.toml/package.version
+      # 2. build app (this also update Cargo.lock)
       cargo build --release
+      # 3. track all changes
+      git add Cargo.toml Cargo.lock README.md
+      git commit -m "release: v0.5.1"
+      git tag v0.5.1
+      # 4. push changes, this will trigger github action and release Docker image
+      git push --tags
 
 
 ## Docker (or without rust env.) build
