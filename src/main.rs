@@ -345,6 +345,8 @@ pub struct BcryptCheckDTO {
 #[derive(Debug, Serialize, Clone)]
 pub struct BcryptCheckResultDTO {
     pub password_valid: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub error: Option<String>,
 }
 
@@ -353,28 +355,28 @@ fn bcrypt_check_body() -> impl Filter<Extract = (BcryptCheckDTO,), Error = warp:
 }
 
 
-pub async fn bcryp_check(
+pub async fn bcrypt_check(
     body: BcryptCheckDTO,
 ) -> result::Result<impl warp::Reply, Infallible> {
     log::debug!("bcryp_check: {:?}", body);
 
     match bcrypt::verify(body.plain, body.hash.as_str()) {
-        Ok(valid) => {
-            log::info!("Bcrypt check: {:?}", result);
+        Ok(is_valid) => {
+            log::info!("Bcrypt check: {:?}", is_valid);
             Ok(warp::reply::with_status(
                 warp::reply::json(&BcryptCheckResultDTO {
-                    password_valid: valid,
+                    password_valid: is_valid,
                     error: None
                 }),
                 StatusCode::OK,
             ))
         }
         Err(e) => {
-            log::info!("Bcrypt check: {:?}", result);
+            log::info!("Bcrypt check: {:?}", e);
             Ok(warp::reply::with_status(
                 warp::reply::json(&BcryptCheckResultDTO {
                     password_valid: false,
-                    error: Some(format!("Oops: {:?}", e))
+                    error: Some(format!("{:?}", e))
                 }),
                 StatusCode::BAD_REQUEST,
             ))
@@ -411,7 +413,7 @@ async fn main() {
         }
     };
 
-    let bcrypt_check = warp::path!("bcrypt/check")
+    let bcrypt_check = warp::path!("bcrypt" / "check")
         .and(warp::post())
         .and(bcrypt_check_body())
         .and_then(bcrypt_check);
@@ -475,7 +477,7 @@ async fn main() {
             8080
         });
 
-    let routes = encrypt.or(decrypt).or(sign).or(verify).or(health);
+    let routes = encrypt.or(decrypt).or(sign).or(verify).or(health).or(bcrypt_check);
     log::info!("Server starting on port {:?}", port);
     warp::serve(routes).run(([0, 0, 0, 0], port)).await;
 }
