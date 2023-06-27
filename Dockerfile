@@ -2,7 +2,7 @@
 FROM ekidd/rust-musl-builder:1.57.0 as builder
 WORKDIR /home/rust/src
 COPY . /home/rust/src
-RUN cargo update && cargo build --release
+RUN cargo build --release
 
 
 FROM alpine:3.13.5 as final
