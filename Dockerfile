@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
-FROM ekidd/rust-musl-builder:1.51.0 as builder
+FROM ekidd/rust-musl-builder:1.57.0 as builder
 WORKDIR /home/rust/src
 COPY . /home/rust/src
-RUN cargo build --release
+RUN cargo update && cargo build --release
 
 
 FROM alpine:3.13.5 as final
