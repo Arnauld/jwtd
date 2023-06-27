@@ -5,7 +5,6 @@ use std::fs;
 use std::result;
 
 use bytes::Bytes;
-use chrono::prelude::*;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use openssl::rsa::{Padding, Rsa};
 use serde::{Deserialize, Serialize};
@@ -13,6 +12,7 @@ use serde_json;
 use warp::{http::StatusCode, reject, Filter, Rejection};
 
 use jwtd::errors::{new_error, ErrorKind, Result};
+use time::{OffsetDateTime, ext::NumericalDuration};
 
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
@@ -80,11 +80,11 @@ pub async fn sign_claims(
                 let duration = sign_opts
                     .duration_seconds
                     .map_or(600, |s| s.parse().unwrap_or(600));
-                let issued_at = Utc::now().timestamp();
-                let expiration = Utc::now()
-                    .checked_add_signed(chrono::Duration::seconds(duration))
+                let issued_at = OffsetDateTime::now_utc().unix_timestamp();
+                let expiration = OffsetDateTime::now_utc()
+                    .checked_add(duration.seconds())
                     .expect("valid timestamp")
-                    .timestamp();
+                    .unix_timestamp();
                 if generate.contains("iat") {
                     m.insert(
                         "iat".to_string(),
