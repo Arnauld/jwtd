@@ -38,12 +38,17 @@ Override default token duration (when generating `exp`)
 ## Release
 
       # 1. update Cargo.toml/package.version
+      cargo install cargo-edit
+      cargo set-version 0.5.2
+
       # 2. build app (this also update Cargo.lock)
       cargo build --release
+
       # 3. track all changes
       git add Cargo.toml Cargo.lock README.md
-      git commit -m "release: v0.5.1"
-      git tag v0.5.1
+      git commit -m "release: v0.5.2"
+      git tag v0.5.2
+      
       # 4. push changes, this will trigger github action and release Docker image
       git push --tags
 
