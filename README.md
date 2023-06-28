@@ -34,6 +34,12 @@ Override default token duration (when generating `exp`)
       # launch sample usecases
       ./usecases.sh
 
+### Powershell
+
+````powershell
+$Env:JWT_PRIV_KEY_LOCATION="$pwd\local\key_prv.pem"
+cargo run
+````
 
 ## Release
 

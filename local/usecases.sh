@@ -66,8 +66,8 @@ echo "========================================================================="
 echo -n "Carmen McCallum" > tmp/data.txt
 ENCRYPTED=$(curl --silent -X POST -d @tmp/data.txt -H "Content-Type: text/plain" -H "x-api-key: $API_KEY" http://localhost:$PORT/encrypt)
 echo "ENCRYPTED (b64)..: $ENCRYPTED"
-echo -n $ENCRYPTED > tmp/encrypted.b64
-echo $ENCRYPTED | base64 --decode > tmp/encrypted.raw
+echo -n "$ENCRYPTED" > tmp/encrypted.b64
+cat tmp/encrypted.b64 | base64 --decode > tmp/encrypted.raw
 
 # decrypt using openssl
 echo "OPENSSL..........: '`openssl rsautl -inkey key_prv.pem -decrypt -oaep -in tmp/encrypted.raw`'"
