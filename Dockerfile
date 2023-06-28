@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 FROM rust:1.67 as builder
 WORKDIR /home/rust/src
+RUN rustup target add x86_64-unknown-linux-musl
 COPY . /home/rust/src
-RUN cargo build --release
-
+RUN cargo build --target x86_64-unknown-linux-musl --release
 
 FROM alpine:3.13.5 as final
 WORKDIR /app
@@ -15,7 +15,7 @@ RUN addgroup -S $APP_USER \
 RUN apk update \
     && apk add --no-cache ca-certificates tzdata \
     && rm -rf /var/cache/apk/*
-COPY --from=builder /home/rust/src/target/x86_64-unknown-linux-musl/release/jwtd /app/jwtd
+COPY --from=builder /usr/local/cargo/bin/jwtd /app/jwtd
 RUN chown -R $APP_USER:$APP_USER /app/jwtd
 USER $APP_USER
-CMD ["./jwtd"]
+CMD ["/app/jwtd"]
