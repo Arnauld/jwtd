@@ -33,10 +33,6 @@ pub struct HealthDTO {
     pub version: String,
 }
 
-pub fn load_private_key(location: String) -> Result<Vec<u8>> {
-    return fs::read(location).map_err(|err| new_error(ErrorKind::PrivateKeyReadingError(err)));
-}
-
 pub fn raw_private_key() -> Result<Vec<u8>> {
     let location = env::var("JWT_PRIV_KEY_LOCATION".to_string()).map_err(|_| {
         new_error(ErrorKind::MissingConfigError(
@@ -485,6 +481,8 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
+    use rsa::pkcs1::{LineEnding};
+    use rsa::pkcs8::EncodePublicKey;
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
@@ -496,11 +494,11 @@ mod tests {
 
     #[test]
     fn test_extract_public_key_from_private_key() {
-        let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
-        let rsa = Rsa::private_key_from_pem(&priv_key);
-        match rsa.unwrap().public_key_to_pem() {
+        let raw_bytes = fs::read("./local/key_prv.pem".to_string()).unwrap();
+        let rsa = private_key(raw_bytes).unwrap();
+        match rsa.to_public_key().to_public_key_pem(LineEnding::LF) {
             Ok(key) => assert_eq!(
-                String::from_utf8(key).unwrap(),
+                key,
                 r#"-----BEGIN PUBLIC KEY-----
 MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzLbgL2eRdwXPLGB/ncPM
 OLPOZ8ARvvcK20igRX728KZIeJg/ISjJo3F9rKiouwYpKUZkYNonnT/NjVL4TG4f
@@ -519,8 +517,13 @@ vwIDAQAB
 
     #[test]
     fn test_decode() {
-        let priv_key = load_private_key("./local/key_prv.pem".to_string()).unwrap();
-        let pub_key = to_public_key(&priv_key).unwrap();
+        let raw_private_key = fs::read("./local/key_prv.pem".to_string()).unwrap();
+        let private_key = private_key(raw_private_key.clone()).unwrap();
+        let public_key = private_key.to_public_key();
+        let decoding_key = DecodingKey::from_rsa_raw_components(
+            &public_key.n().to_bytes_be(),
+            &public_key.e().to_bytes_be(),
+        );
 
         let mut validation = default_validation();
         validation.validate_exp = false;
@@ -539,7 +542,7 @@ vwIDAQAB
         let expected_claims: serde_json::Value = serde_json::from_str(raw_claims).unwrap();
 
         let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhaWQiOiJBR0VOVDowMDciLCJleHAiOjE2NDg3MzcwOTcsImh1ayI6WyJyMDAxIiwicjAwMiJdLCJpYXQiOjE2NDg3MzY0OTcsImlzcyI6Imp3dGQifQ.U6L7jor_1-_efkwsvuizUy3Ljswlxwb6QgDvq4cz7fAs3b4MTceBU02ArmV843x5YYjNvuGkyZgMXxWn11IJS2LPcV4P7s0su_zcVczTS9J_mC-8shZ0RdA8eZ9lgE9LPCn9Fma1ZimSgKk5x8930oqt8v-VokC6lLdpT9jjw2Dbr9xQPyJOpulX5mDvaymsN28fyBZM-QbaRa2rOgmUrvLCM_h94TgZ3kHGkbvLZcYaJFqIQRFoc5TXh1pIHv9Odxnl_ut7LCDqMF4ItmlNTq3QrsL3453vQjD-xJrOdqXEruwpvn52t2a3J7DjarFlFBJnP72yafEW2ApEv1nAxg".to_string();
-        match decode_token(token, pub_key, validation) {
+        match decode_token(token, decoding_key, validation) {
             Ok(claims) => {
                 assert_eq!(claims, expected_claims);
             }
@@ -552,7 +555,7 @@ vwIDAQAB
 
     #[test]
     fn test_encrypt_decrypt() {
-        let raw_bytes = load_private_key("./local/key_prv.pem".to_string()).unwrap();
+        let raw_bytes = fs::read("./local/key_prv.pem".to_string()).unwrap();
         let priv_key = private_key(raw_bytes).unwrap();
         let pub_key = priv_key.to_public_key();
         let buff = Bytes::copy_from_slice("Hello Margarett!".as_bytes());
