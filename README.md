@@ -52,6 +52,18 @@ Override default token duration (when generating `exp`)
       # 4. push changes, this will trigger github action and release Docker image
       git push --tags
 
+Debug release (dependency hell!!)
+
+````bash
+podman run \
+-v $(pwd)/src:/home/rust/src/src \
+-v $(pwd)/Cargo.toml:/home/rust/src/Cargo.toml \
+-v $(pwd)/Cargo.lock:/home/rust/src/Cargo.lock \
+-w /home/rust/src \
+-it rust:1.67.0 /bin/bash
+#-it ekidd/rust-musl-builder:1.57.0 /bin/bash
+````
+
 
 ## Docker (or without rust env.) build
 
