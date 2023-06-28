@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ekidd/rust-musl-builder:1.57.0 as builder
+FROM rust:1.67 as builder
 WORKDIR /home/rust/src
 COPY . /home/rust/src
 RUN cargo build --release
