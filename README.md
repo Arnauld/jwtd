@@ -9,6 +9,20 @@
             -H "Content-Type: application/json" \
             http://localhost:8080/sign?generate=iat,exp,iss
 
+
+      curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"], "iss":"tok"}' \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $API_KEY" \
+            http://localhost:$PORT/sign?generate=iat,exp
+
+
+      echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGFP/c5kwb7Xz3H15/1lXFEZK", "plain":"CarmenMcCallum"}' > tmp/data.txt
+      curl -X POST -d @tmp/data.txt \
+            -H "Content-Type: application/json" \
+            http://localhost:$PORT/bcrypt/check
+
+
+
 If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
 
       curl  -s -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
