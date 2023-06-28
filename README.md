@@ -45,15 +45,15 @@ cargo run
 
       # 1. update Cargo.toml/package.version
       cargo install cargo-edit
-      cargo set-version 0.5.5
+      cargo set-version 0.5.8
 
       # 2. build app (this also update Cargo.lock)
       cargo build --release
 
       # 3. track all changes
       git add Cargo.toml Cargo.lock README.md
-      git commit -m "release: v0.5.5"
-      git tag v0.5.5
+      git commit -m "release: v0.5.8"
+      git tag v0.5.8
       
       # 4. push changes, this will trigger github action and release Docker image
       git push --tags
@@ -73,9 +73,8 @@ podman run \
 
 ## Docker (or without rust env.) build
 
-      docker build -t technbolts/jwtd:LOCAL .
-      docker run technbolts/jwtd:LOCAL
-
+      podman build -t technbolts/jwtd:LOCAL .
+      podman run -v $(pwd)/local:/keys -e JWT_PRIV_KEY_LOCATION=/keys/key_prv.pem  -it technbolts/jwtd:LOCAL
 
       docker tag -i 7358d9f4b652 technbolts/jwtd:0.1.0
       docker login -u xxxx -p xxxx
