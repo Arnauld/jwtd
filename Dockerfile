@@ -1,9 +1,31 @@
 # syntax=docker/dockerfile:1
-FROM ekidd/rust-musl-builder:1.51.0 as builder
+FROM rust:1.67 as builder
 WORKDIR /home/rust/src
+RUN apt-get update && apt-get install -y \
+  musl-dev \
+  musl-tools \
+  file \
+  git \
+  openssh-client \
+  make \
+  cmake \
+  g++ \
+  curl \
+  pkgconf \
+  ca-certificates \
+  xutils-dev \
+  libssl-dev \
+  libpq-dev \
+  automake \
+  autoconf \
+  libtool \
+  protobuf-compiler \
+  libprotobuf-dev \
+  --no-install-recommends && \
+  rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
 COPY . /home/rust/src
-RUN cargo build --release
-
+RUN cargo build --target x86_64-unknown-linux-musl --release
 
 FROM alpine:3.13.5 as final
 ARG UID=1001

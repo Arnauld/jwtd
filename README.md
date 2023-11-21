@@ -9,6 +9,20 @@
             -H "Content-Type: application/json" \
             http://localhost:8080/sign?generate=iat,exp,iss
 
+
+      curl -d '{"aid":"AGENT:007", "huk":["r001", "r002"], "iss":"tok"}' \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $API_KEY" \
+            http://localhost:$PORT/sign?generate=iat,exp
+
+
+      echo -n '{"hash":"$2b$07$WkBvSy5KcOQ4Wm1WhgVJveS4xYHOlGFP/c5kwb7Xz3H15/1lXFEZK", "plain":"CarmenMcCallum"}' > tmp/data.txt
+      curl -X POST -d @tmp/data.txt \
+            -H "Content-Type: application/json" \
+            http://localhost:$PORT/bcrypt/check
+
+
+
 If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
 
       curl  -s -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
@@ -34,17 +48,47 @@ Override default token duration (when generating `exp`)
       # launch sample usecases
       ./usecases.sh
 
+### Powershell
 
-## Building for Release
+````powershell
+$Env:JWT_PRIV_KEY_LOCATION="$pwd\local\key_prv.pem"
+cargo run
+````
 
+## Release
+
+      # 1. update Cargo.toml/package.version
+      cargo install cargo-edit
+      cargo set-version 0.5.9
+
+      # 2. build app (this also update Cargo.lock)
       cargo build --release
+
+      # 3. track all changes
+      git add Cargo.toml Cargo.lock README.md
+      git commit -m "release: v0.5.9"
+      git tag v0.5.9
+      
+      # 4. push changes, this will trigger github action and release Docker image
+      git push --tags
+
+Debug release (dependency hell!!)
+
+````bash
+podman run \
+-v $(pwd)/src:/home/rust/src/src \
+-v $(pwd)/Cargo.toml:/home/rust/src/Cargo.toml \
+-v $(pwd)/Cargo.lock:/home/rust/src/Cargo.lock \
+-w /home/rust/src \
+-it rust:1.67.0 /bin/bash
+#-it ekidd/rust-musl-builder:1.57.0 /bin/bash
+````
 
 
 ## Docker (or without rust env.) build
 
-      docker build -t technbolts/jwtd:LOCAL .
-      docker run technbolts/jwtd:LOCAL
-
+      podman build -t technbolts/jwtd:LOCAL .
+      podman run -v $(pwd)/local:/keys -e JWT_PRIV_KEY_LOCATION=/keys/key_prv.pem  -it technbolts/jwtd:LOCAL
 
       docker tag -i 7358d9f4b652 technbolts/jwtd:0.1.0
       docker login -u xxxx -p xxxx
