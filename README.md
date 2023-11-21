@@ -59,18 +59,25 @@ cargo run
 
       # 1. update Cargo.toml/package.version
       cargo install cargo-edit
-      cargo set-version 0.5.9
+      cargo set-version 0.5.10
 
       # 2. build app (this also update Cargo.lock)
       cargo build --release
 
       # 3. track all changes
       git add Cargo.toml Cargo.lock README.md
-      git commit -m "release: v0.5.9"
-      git tag v0.5.9
+      git commit -m "release: v0.5.10"
+      git tag v0.5.10
       
       # 4. push changes, this will trigger github action and release Docker image
       git push --tags
+
+
+Troubleshoots when installing `cargo-edit`
+
+      sudo apt update
+      sudo apt install pkg-config libssl-dev
+
 
 Debug release (dependency hell!!)
 
