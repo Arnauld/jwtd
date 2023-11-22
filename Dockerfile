@@ -41,7 +41,7 @@ RUN adduser \
 RUN apk update \
     && apk add --no-cache ca-certificates tzdata \
     && rm -rf /var/cache/apk/*
-USER appuser
+USER ${UID}
 WORKDIR /app
 COPY --from=builder /home/rust/src/target/x86_64-unknown-linux-musl/release/jwtd /app/jwtd
 
