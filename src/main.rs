@@ -7,7 +7,7 @@ use std::result;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use rsa::{pkcs1::DecodeRsaPrivateKey, PublicKey, PublicKeyParts, RsaPrivateKey, RsaPublicKey};
+use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, PublicKey, PublicKeyParts, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use time::{ext::NumericalDuration, OffsetDateTime};
@@ -49,6 +49,7 @@ pub fn private_key(raw_bytes: Vec<u8>) -> Result<RsaPrivateKey> {
         .map_err(|err| new_error(ErrorKind::PrivateKeyLoadingError(format!("{:?}", err))))
         .unwrap();
     let private_key = RsaPrivateKey::from_pkcs1_pem(&raw_content)
+        .or( RsaPrivateKey::from_pkcs8_pem(&raw_content))
         .map_err(|err| new_error(ErrorKind::PrivateKeyLoadingError(format!("{:?}", err))))
         .unwrap();
     return Ok(private_key);
@@ -493,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_public_key_from_private_key() {
+    fn test_extract_public_key_from_private_key_pkcs1() {
         let raw_bytes = fs::read("./local/key_prv.pem".to_string()).unwrap();
         let rsa = private_key(raw_bytes).unwrap();
         match rsa.to_public_key().to_public_key_pem(LineEnding::LF) {
@@ -516,7 +517,30 @@ vwIDAQAB
     }
 
     #[test]
-    fn test_decode() {
+    fn test_extract_public_key_from_private_key_pkcs8() {
+        let raw_bytes = fs::read("./local/key_prv.pkcs8".to_string()).unwrap();
+        let rsa = private_key(raw_bytes).unwrap();
+        match rsa.to_public_key().to_public_key_pem(LineEnding::LF) {
+            Ok(key) => assert_eq!(
+                key,
+                r#"-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzLbgL2eRdwXPLGB/ncPM
+OLPOZ8ARvvcK20igRX728KZIeJg/ISjJo3F9rKiouwYpKUZkYNonnT/NjVL4TG4f
+4GnLwrJ8uF6IrFZ2N2ZX0AKZ3ukk9q88IvS4CQ1qc4BJvD6kLyn1F2M7vPYw6l+c
+7IfK60tWeZAGnv15NP/XV4ri383Id1KMIW29dntonF1WmQbFKQhLjrpcmA0ZRm6i
+nB9//raZSOCUU8R6WRtw4SWxPZRXsSDR26ZVyIYIUtHeCnP+qUsSGJJtsNmp/WTu
+HnPwfkKmIrkKgnV2ufdRQ1tz3J6ZpYjYraqsHU3qAIc/GyWAtbjg+cBP+evT6ljz
+vwIDAQAB
+-----END PUBLIC KEY-----
+"#
+                    .to_string()
+            ),
+            Err(err) => panic!("{}", err),
+        }
+    }
+
+    #[test]
+    fn test_decode_pkcs1() {
         let raw_private_key = fs::read("./local/key_prv.pem".to_string()).unwrap();
         let private_key = private_key(raw_private_key.clone()).unwrap();
         let public_key = private_key.to_public_key();
@@ -554,8 +578,67 @@ vwIDAQAB
     }
 
     #[test]
-    fn test_encrypt_decrypt() {
+    fn test_decode_pkcs8() {
+        let raw_private_key = fs::read("./local/key_prv.pkcs8".to_string()).unwrap();
+        let private_key = private_key(raw_private_key.clone()).unwrap();
+        let public_key = private_key.to_public_key();
+        let decoding_key = DecodingKey::from_rsa_raw_components(
+            &public_key.n().to_bytes_be(),
+            &public_key.e().to_bytes_be(),
+        );
+
+        let mut validation = default_validation();
+        validation.validate_exp = false;
+
+        let raw_claims = r#"
+        {
+            "aid": "AGENT:007",
+            "exp": 1648737097,
+            "huk": [
+              "r001",
+              "r002"
+            ],
+            "iat": 1648736497,
+            "iss": "jwtd"
+        }"#;
+        let expected_claims: serde_json::Value = serde_json::from_str(raw_claims).unwrap();
+
+        let token = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhaWQiOiJBR0VOVDowMDciLCJleHAiOjE2NDg3MzcwOTcsImh1ayI6WyJyMDAxIiwicjAwMiJdLCJpYXQiOjE2NDg3MzY0OTcsImlzcyI6Imp3dGQifQ.U6L7jor_1-_efkwsvuizUy3Ljswlxwb6QgDvq4cz7fAs3b4MTceBU02ArmV843x5YYjNvuGkyZgMXxWn11IJS2LPcV4P7s0su_zcVczTS9J_mC-8shZ0RdA8eZ9lgE9LPCn9Fma1ZimSgKk5x8930oqt8v-VokC6lLdpT9jjw2Dbr9xQPyJOpulX5mDvaymsN28fyBZM-QbaRa2rOgmUrvLCM_h94TgZ3kHGkbvLZcYaJFqIQRFoc5TXh1pIHv9Odxnl_ut7LCDqMF4ItmlNTq3QrsL3453vQjD-xJrOdqXEruwpvn52t2a3J7DjarFlFBJnP72yafEW2ApEv1nAxg".to_string();
+        match decode_token(token, decoding_key, validation) {
+            Ok(claims) => {
+                assert_eq!(claims, expected_claims);
+            }
+
+            Err(err) => {
+                panic!("Failed to decode token {}", err);
+            }
+        }
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_pkcs1() {
         let raw_bytes = fs::read("./local/key_prv.pem".to_string()).unwrap();
+        let priv_key = private_key(raw_bytes).unwrap();
+        let pub_key = priv_key.to_public_key();
+        let buff = Bytes::copy_from_slice("Hello Margarett!".as_bytes());
+        match encrypt_content(&buff, pub_key.clone()) {
+            Ok(encrypted) => match decrypt_content(&encrypted, priv_key.clone()) {
+                Ok(decrypted) => {
+                    let actual = String::from_utf8(Vec::from(&decrypted[..])).unwrap();
+                    assert_eq!(actual, "Hello Margarett!".to_string());
+                }
+                Err(err) => {
+                    panic!("Failed to decrypt content {}", err);
+                }
+            },
+            Err(err) => {
+                panic!("Failed to encrypt content {}", err);
+            }
+        }
+    }
+    #[test]
+    fn test_encrypt_decrypt_pkcs8() {
+        let raw_bytes = fs::read("./local/key_prv.pkcs8".to_string()).unwrap();
         let priv_key = private_key(raw_bytes).unwrap();
         let pub_key = priv_key.to_public_key();
         let buff = Bytes::copy_from_slice("Hello Margarett!".as_bytes());
