@@ -3,6 +3,7 @@ use std::convert::Infallible;
 use std::env;
 use std::fs;
 use std::result;
+use std::time::Duration;
 
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -53,6 +54,54 @@ pub fn private_key(raw_bytes: Vec<u8>) -> Result<RsaPrivateKey> {
         .map_err(|err| new_error(ErrorKind::PrivateKeyLoadingError(format!("{:?}", err))))
         .unwrap();
     return Ok(private_key);
+}
+
+pub fn create_cors_filter() -> warp::cors::Cors {
+    // Check if CORS is enabled via environment variables
+    let cors_enabled = env::var("CORS_ENABLED").unwrap_or_else(|_| "false".to_string()) == "true";
+
+    if cors_enabled {
+        // Read cors parameters from environment variables
+        let allowed_origins = env::var("CORS_ALLOWED_ORIGINS").unwrap_or_else(|_| "*".to_string());
+        let allowed_methods = env::var("CORS_ALLOWED_METHODS").unwrap_or_else(|_| "GET,POST,OPTIONS".to_string());
+        let allowed_headers = env::var("CORS_ALLOWED_HEADERS").unwrap_or_else(|_| "Authorization,Content-Type".to_string());
+        let allow_credentials = env::var("CORS_ALLOW_CREDENTIALS").unwrap_or_else(|_| "false".to_string()) == "true";
+        let max_age = env::var("CORS_MAX_AGE").unwrap_or_else(|_| "86400".to_string()).parse::<u64>().unwrap_or(86400);
+        let expose_headers = env::var("CORS_EXPOSE_HEADERS").unwrap_or_else(|_| "".to_string());
+//        let allow_private_network = env::var("CORS_ALLOW_PRIVATE_NETWORK").unwrap_or_else(|_| "false".to_string()) == "true";
+
+        // Log the CORS configuration parameters
+        log::info!("CORS is enabled with configuration:");
+        log::info!("Allowed origins: {}", allowed_origins);
+        log::info!("Allowed methods: {}", allowed_methods);
+        log::info!("Allowed headers: {}", allowed_headers);
+        log::info!("Allow credentials: {}", allow_credentials);
+        log::info!("Max age: {}", max_age);
+        log::info!("Expose headers: {}", expose_headers);
+//        log::info!("Allow private network: {}", allow_private_network);
+
+        let mut cors_builder = warp::cors()
+            .allow_origins(allowed_origins.split(','))
+            .allow_methods(allowed_methods.split(','))
+            .allow_headers(allowed_headers.split(','))
+            .allow_credentials(allow_credentials)
+            .max_age(Duration::from_secs(max_age));
+//            .allow_private_network(allow_private_network)
+
+        if !expose_headers.is_empty() {
+            cors_builder = cors_builder.expose_headers(expose_headers.split(','));
+        }
+/*        if allow_private_network {
+            cors_builder = cors_builder.allow_private_network(true);
+        }*/
+
+        cors_builder.build()
+    } else {
+        log::info!("CORS is disabled");
+
+        // If CORS is disabled, return a default CORS filter
+        warp::cors().build()
+    }
 }
 
 pub fn issuer() -> String {
@@ -406,10 +455,13 @@ async fn main() {
         }
     };
 
+    let cors = create_cors_filter();
+
     let bcrypt_check = warp::path!("bcrypt" / "check")
         .and(warp::post())
         .and(bcrypt_check_body())
-        .and_then(bcrypt_check);
+        .and_then(bcrypt_check)
+        .with(cors.clone());
 
     let sign = warp::path!("sign")
         .and(api_keys_validation(api_keys.clone()))
@@ -419,7 +471,8 @@ async fn main() {
         .and(warp::body::json())
         .and(warp::query::<SignOpts>())
         .and(with_encoding_key(encoding_key))
-        .and_then(sign_claims);
+        .and_then(sign_claims)
+        .with(cors.clone());
 
     let validation = default_validation();
     let verify = warp::path!("verify")
@@ -430,7 +483,8 @@ async fn main() {
         .and(body_as_string())
         .and(with_decoding_key(decoding_key.clone()))
         .and(with_validation(validation.clone()))
-        .and_then(verify_token);
+        .and_then(verify_token)
+        .with(cors.clone());
 
     let encrypt = warp::path!("encrypt")
         .and(api_keys_validation(api_keys.clone()))
@@ -439,7 +493,8 @@ async fn main() {
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_bytes())
         .and(with_public_key(public_key.clone()))
-        .and_then(encrypt_payload);
+        .and_then(encrypt_payload)
+        .with(cors.clone());
 
     let decrypt = warp::path!("decrypt")
         .and(api_keys_validation(api_keys.clone()))
@@ -448,27 +503,44 @@ async fn main() {
         .and(warp::body::content_length_limit(1024 * 32))
         .and(body_as_bytes())
         .and(with_private_key(private_key.clone()))
-        .and_then(decrypt_payload);
+        .and_then(decrypt_payload)
+        .with(cors.clone());
 
     let health = warp::path!("health").and(warp::get()).map(|| {
-        Ok(warp::reply::with_status(
+        warp::reply::with_status(
             warp::reply::json(&HealthDTO {
                 status: "OK".to_string(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             }),
             StatusCode::OK,
-        ))
-    });
+        )
+    })
+    .with(cors.clone());
+
+    let addr = env::var("ADDR")
+        .unwrap_or_else(|_| {
+            log::info!("ADDR not provided, fallback to 0.0.0.0");
+            "0.0.0.0".to_string()
+        });
 
     let port = env::var("PORT")
         .map(|a| match a.parse() {
             Ok(v) => v,
-            _ => 8080,
+            _ => {
+                log::info!("Invalid PORT value, defaulting to 8080");
+                8080
+            },
         })
         .unwrap_or_else(|_err| {
             log::info!("Port not provided, fallback on default");
             8080
         });
+
+    // Parse the ADDR into a socket address
+    let socket_addr: std::net::IpAddr = addr.parse().unwrap_or_else(|_| {
+        log::info!("Invalid ADDR value, defaulting to 0.0.0.0");
+        std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0))
+    });
 
     let routes = encrypt
         .or(decrypt)
@@ -476,8 +548,9 @@ async fn main() {
         .or(verify)
         .or(health)
         .or(bcrypt_check);
-    log::info!("Server starting on port {:?}", port);
-    warp::serve(routes).run(([0, 0, 0, 0], port)).await;
+
+    log::info!("Server starting on port {}:{}", socket_addr, port);
+    warp::serve(routes).run((socket_addr, port)).await;
 }
 
 #[cfg(test)]
@@ -485,6 +558,9 @@ mod tests {
     use rsa::pkcs1::{LineEnding};
     use rsa::pkcs8::EncodePublicKey;
     // Note this useful idiom: importing names from outer (for mod tests) scope.
+    use warp::http::{HeaderValue};
+    use warp::test::request;
+    use warp::Filter;
     use super::*;
 
     #[ctor::ctor] // see https://stackoverflow.com/a/63442117
@@ -656,5 +732,125 @@ vwIDAQAB
                 panic!("Failed to encrypt content {}", err);
             }
         }
+    }
+
+
+    #[tokio::test]
+    async fn test_cors_headers_present() {
+        env::set_var("CORS_ENABLED", "true");
+        env::set_var("CORS_ALLOWED_ORIGINS", "http://localhost:4200");
+        env::set_var("CORS_ALLOWED_METHODS", "GET,POST,OPTIONS");
+        env::set_var("CORS_ALLOWED_HEADERS", "Authorization,Content-Type");
+
+        let cors = create_cors_filter();
+
+        let route = warp::path!("health")
+            .and(warp::get())
+            .map(|| {
+                warp::reply::with_status(
+                    warp::reply::json(&HealthDTO {
+                        status: "OK".to_string(),
+                        version: "1.0".to_string(),
+                    }),
+                    warp::http::StatusCode::OK,
+                )
+            })
+            .with(cors.clone());
+
+        let res = request()
+            .method("GET")
+            .path("/health")
+            .header("Origin", "http://localhost:4200")
+            .reply(&route)
+            .await;
+
+        assert_eq!(res.status(), 200);
+
+        assert_eq!(
+            res.headers().get("access-control-allow-origin"),
+            Some(&HeaderValue::from_static("http://localhost:4200"))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cors_preflight_request() {
+        env::set_var("CORS_ENABLED", "true");
+        env::set_var("CORS_ALLOWED_ORIGINS", "http://localhost:4200");
+        env::set_var("CORS_ALLOWED_METHODS", "GET,POST,OPTIONS");
+        env::set_var("CORS_ALLOWED_HEADERS", "Authorization,Content-Type");
+
+        let cors = create_cors_filter();
+
+        let route = warp::path!("health")
+            .and(warp::options())
+            .map(warp::reply)
+            .with(cors.clone());
+
+        let res = request()
+            .method("OPTIONS")
+            .path("/health")
+            .header("Origin", "http://localhost:4200")
+            .header("Access-Control-Request-Method", "GET")
+            .reply(&route)
+            .await;
+
+        assert_eq!(res.status(), 200);
+
+        assert_eq!(
+            res.headers().get("access-control-allow-origin"),
+            Some(&HeaderValue::from_static("http://localhost:4200"))
+        );
+
+        let allowed_methods = res.headers().get("access-control-allow-methods").unwrap().to_str().unwrap();
+        let allowed_methods_vec: Vec<&str> = allowed_methods.split(',').map(|s| s.trim()).collect();
+
+        let expected_methods = vec!["GET", "POST", "OPTIONS"];
+        assert_eq!(allowed_methods_vec.len(), expected_methods.len());
+
+        for method in expected_methods {
+            assert!(allowed_methods_vec.contains(&method));
+        }
+
+        let allowed_headers = res.headers().get("access-control-allow-headers").unwrap().to_str().unwrap().to_lowercase();
+        let allowed_headers_vec: Vec<&str> = allowed_headers.split(',').map(|s| s.trim()).collect();
+
+        let expected_headers = vec!["authorization", "content-type"];
+        assert_eq!(allowed_headers_vec.len(), expected_headers.len());
+
+        for header in expected_headers {
+            assert!(allowed_headers_vec.contains(&header));
+        }
+   }
+
+    #[tokio::test]
+    async fn test_cors_disallowed_origin() {
+        env::set_var("CORS_ENABLED", "true");
+        env::set_var("CORS_ALLOWED_ORIGINS", "http://localhost:4200");
+        env::set_var("CORS_ALLOWED_METHODS", "GET,POST,OPTIONS");
+        env::set_var("CORS_ALLOWED_HEADERS", "Authorization,Content-Type");
+
+        let cors = create_cors_filter();
+
+        let route = warp::path!("health")
+            .and(warp::get())
+            .map(|| {
+                warp::reply::with_status(
+                    warp::reply::json(&HealthDTO {
+                        status: "OK".to_string(),
+                        version: "1.0".to_string(),
+                    }),
+                    warp::http::StatusCode::OK,
+                )
+            })
+            .with(cors.clone());
+
+        let res = request()
+            .method("GET")
+            .path("/health")
+            .header("Origin", "http://unauthorized.com")
+            .reply(&route)
+            .await;
+
+        assert!(res.headers().get("access-control-allow-origin").is_none());
     }
 }

@@ -124,3 +124,61 @@ podman run \
         echo $DATA_B64DEC > data.b64
         cat data.b64 | base64 -d > data.raw
         openssl rsautl -inkey priv_key.pem -decrypt -oaep -in data.raw
+
+# Environment Variables
+
+This application supports several environment variables to control its behavior.
+
+## Server configuration
+- **`ADDR`**:
+The bind address to listen for requests
+- **`PORT`**:
+The port to listen for requests
+- **`RUST_LOG`**:
+Controls the logging level for Rust applications, allowing you to specify which logs should be shown during the execution. By setting this variable, you can adjust the verbosity of the logs for debugging or monitoring purposes.
+
+## Token configuration
+- **`API_KEYS`**:
+A list of API keys used to authenticate requests. This variable should contain a comma-separated list of keys.
+- **`JWT_ISSUER`**:
+iss claims value if required in 'generated' query param
+
+## CORS Configuration (Cross-Origin Resource Sharing)
+These environment variables allow you to manage security and access control mechanisms for your API.
+
+- **`CORS_ENABLED`**:  
+  A boolean flag to enable or disable CORS. Set this variable to `"true"` to allow cross-origin requests, or `"false"` to disable them. When disabled, no CORS-related headers are included in the server's responses.
+
+- **`CORS_ALLOWED_ORIGINS`**:  
+  Specifies the allowed origins for cross-origin requests. This should be a comma-separated list of origins (e.g., `"http://example.com,http://localhost:4200"`). The wildcard (`"*"`) can be used to allow requests from any origin, but it's recommended to be explicit for security reasons.
+
+- **`CORS_ALLOWED_METHODS`**:  
+  Defines the HTTP methods that are allowed when accessing resources. Common values include `"GET,POST,OPTIONS"`, but you can add others such as `"PUT,DELETE"` based on your API's needs. This restricts which methods clients can use.
+
+- **`CORS_ALLOWED_HEADERS`**:  
+  Specifies the allowed headers in requests. You can define which headers clients are allowed to send, such as `"Authorization,Content-Type"`. This is useful when allowing credentials or custom content types.
+
+- **`CORS_ALLOW_CREDENTIALS`**:  
+  A boolean flag (`"true"` or `"false"`) that indicates whether or not the response can be exposed when credentials (cookies or HTTP authentication) are included in cross-origin requests. Set this to `"true"` to allow credentials.
+
+- **`CORS_MAX_AGE`**:  
+  Defines the maximum time (in seconds) that the results of a preflight request can be cached. For example, `"86400"` (24 hours) will allow the browser to cache preflight responses for 24 hours, reducing the number of preflight requests. Default value is typically 86400 seconds (1 day).
+
+- **`CORS_EXPOSE_HEADERS`**:  
+  A comma-separated list of headers that the client is allowed to access in the response. By default, only a few headers like `Content-Type` are exposed. If your API sends custom headers that clients need to access, list them here (e.g., `"X-Custom-Header,X-Another-Header"`).
+
+- **`CORS_ALLOW_PRIVATE_NETWORK`** (optional, not available in all versions):  
+  A boolean flag (`"true"` or `"false"`) that indicates whether cross-origin requests from private networks are allowed. This is useful for allowing access from internal networks, but should be handled carefully for security reasons.
+
+### Example Usage
+
+To enable CORS with specific origins, methods, and headers:
+
+```bash
+CORS_ENABLED=true
+CORS_ALLOWED_ORIGINS=http://example.com,http://localhost:4200
+CORS_ALLOWED_METHODS=GET,POST,OPTIONS
+CORS_ALLOWED_HEADERS=Authorization,Content-Type
+CORS_ALLOW_CREDENTIALS=true
+CORS_MAX_AGE=86400
+CORS_EXPOSE_HEADERS=X-Custom-Header,X-Another-Header
