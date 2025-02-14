@@ -136,6 +136,12 @@ The bind address to listen for requests
 The port to listen for requests
 - **`RUST_LOG`**:
 Controls the logging level for Rust applications, allowing you to specify which logs should be shown during the execution. By setting this variable, you can adjust the verbosity of the logs for debugging or monitoring purposes.
+- **`URL_PREFIX`**:
+Optional : let you configure a prefix to all endpoints, e.g. if you set URL_PREFIX=jwtd, then a valid sign http query will look like (notice target url change) :
+    
+      curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/jwtd/sign?generate=iat,exp,iss
+
+  "/" characters can be included or not in the env variable, because they are ignored. URL_PREFIX=/jwtd/ will have the same effect as above. Thus, url prefixes with multiple levels are not supported: URL_PREFIX=/jw/td/ will behave like URL_PREFIX=jwtd.
 
 ## Token configuration
 - **`API_KEYS`**:
