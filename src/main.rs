@@ -8,7 +8,7 @@ use std::time::Duration;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
-use log::warn;
+
 use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, PublicKey, PublicKeyParts, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -549,7 +549,7 @@ async fn main() {
             Some(prefix)
         }
         Err(e) => {
-            warn!("error {}", e.to_string());
+            log::warn!("error redaing env var {}", e.to_string());
             None
         }
     };
