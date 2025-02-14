@@ -8,6 +8,7 @@ use std::time::Duration;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+use log::warn;
 use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, PublicKey, PublicKeyParts, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -542,6 +543,17 @@ async fn main() {
         std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0))
     });
 
+    let url_prefix = match env::var("URL_PREFIX") {
+        Ok(mut prefix) => {
+            prefix.retain(|c| c != '/');
+            Some(prefix)
+        }
+        Err(e) => {
+            warn!("error {}", e.to_string());
+            None
+        }
+    };
+
     let routes = encrypt
         .or(decrypt)
         .or(sign)
@@ -550,7 +562,11 @@ async fn main() {
         .or(bcrypt_check);
 
     log::info!("Server starting on port {}:{}", socket_addr, port);
-    warp::serve(routes).run((socket_addr, port)).await;
+    if url_prefix.is_some() {
+        warp::serve(warp::path(url_prefix.unwrap()).and(routes)).run((socket_addr, port)).await;
+    } else {
+        warp::serve(routes).run((socket_addr, port)).await;
+        }
 }
 
 #[cfg(test)]
