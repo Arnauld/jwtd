@@ -1,6 +1,6 @@
 [package]
 name = "jwtd"
-version = "0.5.11"
+version = "0.6.1"
 authors = ["Arnauld <arnauld.loyer@gmail.com>"]
 edition = "2021"
 

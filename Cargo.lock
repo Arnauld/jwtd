@@ -559,7 +559,7 @@ dependencies = [
 
 [[package]]
 name = "jwtd"
-version = "0.5.11"
+version = "0.6.1"
 dependencies = [
  "base64 0.21.7",
  "bcrypt",
