@@ -1,12 +1,5 @@
-# Argument pour spécifier le target
-ARG TARGET_TRIPLE=x86_64-unknown-linux-musl
-
 # syntax=docker/dockerfile:1
 FROM rust:1.67.1 AS builder
-
-ARG TARGET_TRIPLE
-ENV TARGET_TRIPLE=${TARGET_TRIPLE}
-
 WORKDIR /home/rust/src
 RUN apt-get update && apt-get install -y \
   musl-dev \
@@ -29,28 +22,14 @@ RUN apt-get update && apt-get install -y \
   protobuf-compiler \
   libprotobuf-dev \
   --no-install-recommends && \
-  rm -rf /var/lib/apt/lists/* \
-RUN rustup target add ${TARGET_TRIPLE}
-RUN rustup component add rust-std --target ${TARGET_TRIPLE}
-
+  rm -rf /var/lib/apt/lists/*
+RUN rustup target add x86_64-unknown-linux-musl
 COPY . /home/rust/src
-
-# When target is "aarch64-unknown-linux-musl", defining CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER and CC is required
-RUN if [ "${TARGET_TRIPLE}" = "aarch64-unknown-linux-musl" ]; then \
-        export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-gnu-gcc && \
-        export CC=aarch64-linux-gnu-gcc; \
-    fi && \
-    cargo build --target ${TARGET_TRIPLE} --release
-RUN ls -al ./target/
+RUN cargo build --target x86_64-unknown-linux-musl --release
 
 FROM alpine:3.13.5 AS final
-
 ARG UID=1001
-ARG TARGET_TRIPLE
-
-ENV TARGET_TRIPLE=${TARGET_TRIPLE}
 ENV TZ=Etc/UTC
-
 RUN adduser \
     --disabled-password \
     --gecos "" \
@@ -64,7 +43,7 @@ RUN apk update \
     && rm -rf /var/cache/apk/*
 USER ${UID}
 WORKDIR /app
-COPY --from=builder /home/rust/src/target/${TARGET_TRIPLE}/release/jwtd /app/jwtd
+COPY --from=builder /home/rust/src/target/x86_64-unknown-linux-musl/release/jwtd /app/jwtd
 
 EXPOSE 8000
 CMD ["./jwtd"]
