@@ -1,33 +1,35 @@
-# syntax=docker/dockerfile:1
-FROM rust:1.67.1 AS builder
-WORKDIR /home/rust/src
-RUN apt-get update && apt-get install -y \
-  musl-dev \
-  musl-tools \
-  file \
-  git \
-  openssh-client \
-  make \
-  cmake \
-  g++ \
-  curl \
-  pkgconf \
-  ca-certificates \
-  xutils-dev \
-  libssl-dev \
-  libpq-dev \
-  automake \
-  autoconf \
-  libtool \
-  protobuf-compiler \
-  libprotobuf-dev \
-  --no-install-recommends && \
-  rm -rf /var/lib/apt/lists/*
-RUN rustup target add x86_64-unknown-linux-musl
-COPY . /home/rust/src
-RUN cargo build --target x86_64-unknown-linux-musl --release
+# (1) this stage will be run always on current arch
+# zigbuild & Cargo targets added
+FROM --platform=$BUILDPLATFORM rust:alpine AS chef
+WORKDIR /app
+ENV PKGCONFIG_SYSROOTDIR=/
+RUN apk add --no-cache musl-dev openssl-dev zig
+RUN cargo install --locked cargo-zigbuild cargo-chef
+RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
 
-FROM alpine:3.13.5 AS final
+# (2) nothing changed
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# (3) building project deps: need to specify all targets; zigbuild used
+FROM chef AS builder
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --recipe-path recipe.json --release --zigbuild --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
+
+# (4) actuall project build for all targets
+# binary renamed to easier copy in runtime stage
+COPY . .
+RUN cargo zigbuild -r --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl && \
+  mkdir /app/linux && \
+  cp target/aarch64-unknown-linux-musl/release/jwtd /app/linux/arm64 && \
+  cp target/x86_64-unknown-linux-musl/release/jwtd /app/linux/amd64
+
+# (5) this staged will be emulated as was before
+# TARGETPLATFORM usage to copy right binary from builder stage
+# ARG populated by docker itself
+FROM alpine:latest AS runtime
+ARG TARGETPLATFORM
 ARG UID=1001
 ENV TZ=Etc/UTC
 RUN adduser \
@@ -38,12 +40,9 @@ RUN adduser \
     --no-create-home \
     --uid "${UID}" \
     appuser
-RUN apk update \
-    && apk add --no-cache ca-certificates tzdata \
-    && rm -rf /var/cache/apk/*
 USER ${UID}
 WORKDIR /app
-COPY --from=builder /home/rust/src/target/x86_64-unknown-linux-musl/release/jwtd /app/jwtd
+COPY --from=builder /app/${TARGETPLATFORM} /app/jwtd
 
 EXPOSE 8000
 CMD ["./jwtd"]
