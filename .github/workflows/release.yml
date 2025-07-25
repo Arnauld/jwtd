@@ -4,23 +4,47 @@ on:
     tags: [ "v**" ]
 
 jobs:
-  release:
+  changelog:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Generate a changelog
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         id: git-cliff
         uses: orhun/git-cliff-action@v4
         with:
+          config: cliff.toml
           args: --latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT: CHANGELOG.md
 
+      - name: Print the changelog
+        run: cat "${{ steps.git-cliff.outputs.changelog }}"
+
+      - name: Commit
+        run: |
+          git checkout develop
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          set +e
+          git add CHANGELOG.md
+          git commit -m "Update changelog"
+          git push https://${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git develop
+
+  release:
+    name: Upload the release
+    needs: changelog
+    runs-on: ubuntu-latest
+    steps:
       - name: Create Github Release
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
         uses: softprops/action-gh-release@v2
         with:
-          body: ${{ steps.git-cliff.outputs.content }}
+          body: ${{ needs.changelog.outputs.content }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
