@@ -22,7 +22,6 @@
             http://localhost:$PORT/bcrypt/check
 
 
-
 If `jwt` cli is installed (https://github.com/mike-engel/jwt-cli)
 
       curl  -s -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
