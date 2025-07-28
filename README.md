@@ -3,7 +3,8 @@
 [![GitHub license](https://img.shields.io/github/license/Arnauld/jwtd.svg)](https://github.com/Arnauld/jwtd/blob/master/LICENSE)
 [![GitHub release](https://img.shields.io/github/release/Arnauld/jwtd.svg)](https://GitHub.com/Arnauld/jwtd/releases/)
 [![Docker](https://badgen.net/badge/icon/docker?icon=docker&label)](https://hub.docker.com/r/technbolts/jwtd/tags)
-[![GitHub Workflow Status](https://img.shields.io/github/workflow/status/Arnauld/jwtd/Rust)](https://github.com/Arnauld/jwtd/actions/workflows/rust.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Arnauld/jwtd/Rust)](https://github.com/Arnauld/jwtd/actions/workflows/rust.yml)
+[![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/Arnauld/jwtd/rust.yml?branch=develop)](https://github.com/Arnauld/jwtd/actions/workflows/rust.yml)
 
       curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' \
             -H "Content-Type: application/json" \
