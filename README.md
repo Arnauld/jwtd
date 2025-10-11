@@ -93,8 +93,16 @@ podman run \
 
 ## Docker (or without rust env.) build
 
+      # Build without AWS Secrets Manager (default)
       podman build -t technbolts/jwtd:LOCAL .
       podman run -v $(pwd)/local:/keys -e JWT_PRIV_KEY_LOCATION=/keys/key_prv.pem  -it technbolts/jwtd:LOCAL
+
+      # Build with AWS Secrets Manager support
+      podman build --build-arg CARGO_FEATURES="--features aws-secret-manager" -t technbolts/jwtd:LOCAL .
+      podman run -e JWT_PRIV_KEY_SECRET_NAME=my-jwt-key -e JWT_PRIV_KEY_LOCATION=/keys/key_prv.pem -it technbolts/jwtd:LOCAL
+
+      # Docker build with AWS support
+      docker build --build-arg CARGO_FEATURES="--features aws-secret-manager" -t technbolts/jwtd:LOCAL .
 
       docker tag -i 7358d9f4b652 technbolts/jwtd:0.1.0
       docker login -u xxxx -p xxxx
@@ -141,6 +149,32 @@ Optional : let you configure a prefix to all endpoints, e.g. if you set URL_PREF
       curl  -d '{"aid":"AGENT:007", "huk":["r001", "r002"]}' -H "Content-Type: application/json" http://localhost:8080/jwtd/sign?generate=iat,exp,iss
 
   "/" characters can be included or not in the env variable, because they are ignored. URL_PREFIX=/jwtd/ will have the same effect as above. Thus, url prefixes with multiple levels are not supported: URL_PREFIX=/jw/td/ will behave like URL_PREFIX=jwtd.
+
+## Private Key Configuration
+- **`JWT_PRIV_KEY_LOCATION`**:
+Path to the RSA private key file in PEM format (PKCS1 or PKCS8). Required if `JWT_PRIV_KEY_SECRET_NAME` is not set or if AWS Secrets Manager loading fails.
+
+- **`JWT_PRIV_KEY_SECRET_NAME`** (requires `aws-secret-manager` feature):
+Name of the AWS Secrets Manager secret containing the private key. When this variable is set, the application will attempt to load the private key from AWS Secrets Manager first. If the secret is not found or if loading fails, it will display a warning and fall back to using `JWT_PRIV_KEY_LOCATION`.
+
+**Key Loading Priority:**
+1. AWS Secrets Manager (if `JWT_PRIV_KEY_SECRET_NAME` is set and the `aws-secret-manager` feature is enabled)
+2. File system (using `JWT_PRIV_KEY_LOCATION`)
+
+**Building with AWS Secrets Manager support:**
+```bash
+cargo build --features aws-secret-manager
+cargo build --release --features aws-secret-manager
+```
+
+**Running with AWS Secrets Manager:**
+```bash
+# Set AWS credentials (via environment variables or AWS CLI configuration)
+export AWS_REGION=us-east-1
+export JWT_PRIV_KEY_SECRET_NAME=my-jwt-private-key
+export JWT_PRIV_KEY_LOCATION=./local/key_prv.pem  # Fallback option
+./target/release/jwtd
+```
 
 ## Token configuration
 - **`API_KEYS`**:

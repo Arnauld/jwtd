@@ -3,6 +3,8 @@
 FROM --platform=$BUILDPLATFORM rust:alpine AS chef
 WORKDIR /app
 ENV PKGCONFIG_SYSROOTDIR=/
+# ARG to enable AWS Secrets Manager feature (empty by default)
+ARG CARGO_FEATURES=""
 RUN apk add --no-cache musl-dev openssl-dev zig
 RUN cargo install --locked cargo-zigbuild cargo-chef
 RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
@@ -14,13 +16,15 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 # (3) building project deps: need to specify all targets; zigbuild used
 FROM chef AS builder
+ARG CARGO_FEATURES=""
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --recipe-path recipe.json --release --zigbuild --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
+RUN cargo chef cook --recipe-path recipe.json --release --zigbuild --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl ${CARGO_FEATURES}
 
-# (4) actuall project build for all targets
+# (4) actual project build for all targets
 # binary renamed to easier copy in runtime stage
+# To build with AWS Secrets Manager support, use: --build-arg CARGO_FEATURES="--features aws-secret-manager"
 COPY . .
-RUN cargo zigbuild -r --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl && \
+RUN cargo zigbuild -r --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl ${CARGO_FEATURES} && \
   mkdir /app/linux && \
   cp target/aarch64-unknown-linux-musl/release/jwtd /app/linux/arm64 && \
   cp target/x86_64-unknown-linux-musl/release/jwtd /app/linux/amd64
