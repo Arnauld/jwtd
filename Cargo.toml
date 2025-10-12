@@ -1,6 +1,6 @@
 [package]
 name = "jwtd"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Arnauld <arnauld.loyer@gmail.com>"]
 edition = "2021"
 
@@ -32,6 +32,18 @@ time = {version = "0.3", features = ["alloc"]}
 
 [dev-dependencies]
 ctor = "0.2.0"
+
+[features]
+default = []
+aws-secret-manager = ["aws-config", "aws-sdk-secretsmanager"]
+
+[dependencies.aws-config]
+version = "1.1"
+optional = true
+
+[dependencies.aws-sdk-secretsmanager]
+version = "1.12"
+optional = true
 
 [profile.release]
 debug = true

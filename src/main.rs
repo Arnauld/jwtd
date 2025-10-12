@@ -17,6 +17,11 @@ use warp::{http::StatusCode, reject, Filter, Rejection};
 
 use jwtd::errors::{new_error, ErrorKind, Result};
 
+#[cfg(feature = "aws-secret-manager")]
+use aws_config;
+#[cfg(feature = "aws-secret-manager")]
+use aws_sdk_secretsmanager::Client as SecretsManagerClient;
+
 #[derive(Debug, Deserialize)]
 pub struct SignOpts {
     pub generate: Option<String>,
@@ -35,15 +40,71 @@ pub struct HealthDTO {
     pub version: String,
 }
 
-pub fn raw_private_key() -> Result<Vec<u8>> {
-    let location = env::var("JWT_PRIV_KEY_LOCATION".to_string()).map_err(|_| {
+#[cfg(feature = "aws-secret-manager")]
+async fn load_private_key_from_aws_secrets_manager(secret_name: &str) -> Result<Vec<u8>> {
+    log::info!("Attempting to load private key from AWS Secrets Manager: {}", secret_name);
+
+    let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+        .load()
+        .await;
+    let client = SecretsManagerClient::new(&config);
+
+    match client.get_secret_value()
+        .secret_id(secret_name)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            log::info!("Successfully loaded private key from AWS Secrets Manager");
+
+            if let Some(secret_string) = response.secret_string() {
+                Ok(secret_string.as_bytes().to_vec())
+            } else if let Some(secret_binary) = response.secret_binary() {
+                Ok(secret_binary.as_ref().to_vec())
+            } else {
+                Err(new_error(ErrorKind::PrivateKeyLoadingError(
+                    "AWS secret contains neither string nor binary data".to_string()
+                )))
+            }
+        }
+        Err(err) => {
+            log::warn!("Failed to load private key from AWS Secrets Manager: {:?}", err);
+            Err(new_error(ErrorKind::PrivateKeyLoadingError(
+                format!("AWS Secrets Manager error: {:?}", err)
+            )))
+        }
+    }
+}
+
+pub async fn raw_private_key() -> Result<Vec<u8>> {
+    log::info!("Starting private key loading process");
+
+    // Try AWS Secrets Manager first if feature is enabled and env var is set
+    #[cfg(feature = "aws-secret-manager")]
+    if let Ok(secret_name) = env::var("JWT_PRIV_KEY_SECRET_NAME") {
+        log::info!("Configuration: AWS Secrets Manager mode detected (JWT_PRIV_KEY_SECRET_NAME is set)");
+        log::info!("Loading private key from AWS Secrets Manager: secret_name={}", secret_name);
+        // Load directly from AWS without fallback
+        return load_private_key_from_aws_secrets_manager(&secret_name).await;
+    }
+
+    // Load from file system if AWS Secrets Manager is not configured
+    log::info!("Configuration: File system mode (loading from JWT_PRIV_KEY_LOCATION)");
+
+    let location = env::var("JWT_PRIV_KEY_LOCATION").map_err(|_| {
+        log::error!("Environment variable 'JWT_PRIV_KEY_LOCATION' is not set");
         new_error(ErrorKind::MissingConfigError(
             "Environment variable 'JWT_PRIV_KEY_LOCATION' not set; unable to read private key"
                 .to_string(),
         ))
     })?;
-    fs::read(location)
-        .map_err(|err| new_error(ErrorKind::PrivateKeyLoadingError(format!("{:?}", err))))
+
+    log::info!("Loading private key from file: {}", location);
+    fs::read(&location)
+        .map_err(|err| {
+            log::error!("Failed to read private key file '{}': {:?}", location, err);
+            new_error(ErrorKind::PrivateKeyLoadingError(format!("{:?}", err)))
+        })
 }
 
 pub fn private_key(raw_bytes: Vec<u8>) -> Result<RsaPrivateKey> {
@@ -435,7 +496,7 @@ async fn main() {
     }
     pretty_env_logger::init();
 
-    let raw_private_key = raw_private_key().unwrap();
+    let raw_private_key = raw_private_key().await.unwrap();
     let private_key = private_key(raw_private_key.clone()).unwrap();
     let public_key = private_key.to_public_key();
     let encoding_key = EncodingKey::from_rsa_pem(&raw_private_key).unwrap();
@@ -443,7 +504,7 @@ async fn main() {
         &public_key.n().to_bytes_be(),
         &public_key.e().to_bytes_be(),
     );
-    log::info!("Private key loaded");
+    log::info!("Private key loaded successfully");
 
     let api_keys: HashSet<String> = match env::var("API_KEYS") {
         Ok(keys) => {
@@ -837,6 +898,56 @@ vwIDAQAB
             assert!(allowed_headers_vec.contains(&header));
         }
    }
+
+    #[tokio::test]
+    async fn test_raw_private_key_from_file() {
+        // Test loading from file when AWS secret is not set
+        env::remove_var("JWT_PRIV_KEY_SECRET_NAME");
+        env::set_var("JWT_PRIV_KEY_LOCATION", "./local/key_prv.pem");
+
+        let result = raw_private_key().await;
+        assert!(result.is_ok(), "Failed to load private key from file");
+
+        let raw_key = result.unwrap();
+        assert!(!raw_key.is_empty(), "Private key should not be empty");
+    }
+
+    #[tokio::test]
+    async fn test_raw_private_key_missing_config() {
+        // Test error when neither AWS secret nor file location is set
+        env::remove_var("JWT_PRIV_KEY_SECRET_NAME");
+        env::remove_var("JWT_PRIV_KEY_LOCATION");
+
+        let result = raw_private_key().await;
+        assert!(result.is_err(), "Should fail when no configuration is provided");
+    }
+
+    #[cfg(feature = "aws-secret-manager")]
+    #[tokio::test]
+    #[ignore] // Ignored by default as it requires AWS credentials and network access
+    async fn test_aws_secret_manager_no_fallback() {
+        // Test that when AWS secret is set but fails, it does NOT fall back to file
+        let original_secret = env::var("JWT_PRIV_KEY_SECRET_NAME").ok();
+        let original_location = env::var("JWT_PRIV_KEY_LOCATION").ok();
+
+        env::set_var("JWT_PRIV_KEY_SECRET_NAME", "non-existent-secret-for-testing");
+        env::set_var("JWT_PRIV_KEY_LOCATION", "./local/key_prv.pem");
+
+        let result = raw_private_key().await;
+
+        // Restore original env vars
+        match original_secret {
+            Some(val) => env::set_var("JWT_PRIV_KEY_SECRET_NAME", val),
+            None => env::remove_var("JWT_PRIV_KEY_SECRET_NAME"),
+        }
+        match original_location {
+            Some(val) => env::set_var("JWT_PRIV_KEY_LOCATION", val),
+            None => env::remove_var("JWT_PRIV_KEY_LOCATION"),
+        }
+
+        // Should fail without falling back to file
+        assert!(result.is_err(), "Should fail when AWS secret is not found (no fallback)");
+    }
 
     #[tokio::test]
     async fn test_cors_disallowed_origin() {
