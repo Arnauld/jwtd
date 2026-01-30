@@ -12,6 +12,7 @@ use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, 
 use rsa::{pkcs1::DecodeRsaPrivateKey, pkcs8::DecodePrivateKey, PublicKey, PublicKeyParts, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use sha2::{Digest, Sha256};
 use time::{ext::NumericalDuration, OffsetDateTime};
 use warp::{http::StatusCode, reject, Filter, Rejection};
 
@@ -33,6 +34,56 @@ pub struct ErrorDTO {
 pub struct HealthDTO {
     pub status: String,
     pub version: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JwksDTO {
+    pub keys: Vec<JwkDTO>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JwkDTO {
+    pub kty: String,
+    #[serde(rename = "use")]
+    pub use_: String,
+    pub alg: String,
+    pub n: String,
+    pub e: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kid: Option<String>,
+}
+
+// RFC 7638 (JWK Thumbprint) pour RSA : kid = b64url_no_pad(sha256({"e":"...","kty":"RSA","n":"..."}))
+fn jwk_kid_rfc7638_rsa(n_b64u: &str, e_b64u: &str) -> String {
+    // Ordre lexicographique des membres requis : e, kty, n
+    // Pas d'espaces, guillemets JSON стандарт ; n/e en base64url sont sans caractères à échapper.
+    let canonical = format!(r#"{{"e":"{}","kty":"RSA","n":"{}"}}"#, e_b64u, n_b64u);
+
+    let digest = Sha256::digest(canonical.as_bytes());
+    general_purpose::URL_SAFE_NO_PAD.encode(digest)
+}
+
+fn jwk_from_public_key(public_key: &RsaPublicKey) -> JwkDTO {
+    let n_b64u = general_purpose::URL_SAFE_NO_PAD.encode(public_key.n().to_bytes_be());
+    let e_b64u = general_purpose::URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be());
+    let random_kid = jwk_kid_rfc7638_rsa(&n_b64u, &e_b64u);
+
+    JwkDTO {
+        kty: "RSA".to_string(),
+        use_: "sig".to_string(),
+        alg: "RS256".to_string(),
+        n: n_b64u,
+        e: e_b64u,
+        kid: Some(random_kid),
+    }
+}
+
+pub async fn jwks(public_key: RsaPublicKey) -> result::Result<impl warp::Reply, Infallible> {
+    let jwk = jwk_from_public_key(&public_key);
+    Ok(warp::reply::with_status(
+        warp::reply::json(&JwksDTO { keys: vec![jwk] }),
+        StatusCode::OK,
+    ))
 }
 
 pub fn raw_private_key() -> Result<Vec<u8>> {
@@ -507,6 +558,12 @@ async fn main() {
         .and_then(decrypt_payload)
         .with(cors.clone());
 
+    let jwks_route = warp::path!("jwks")
+        .and(warp::get())
+        .and(with_public_key(public_key.clone()))
+        .and_then(jwks)
+        .with(cors.clone());
+
     let health = warp::path!("health").and(warp::get()).map(|| {
         warp::reply::with_status(
             warp::reply::json(&HealthDTO {
@@ -558,6 +615,7 @@ async fn main() {
         .or(decrypt)
         .or(sign)
         .or(verify)
+        .or(jwks_route)
         .or(health)
         .or(bcrypt_check);
 
@@ -868,5 +926,46 @@ vwIDAQAB
             .await;
 
         assert!(res.headers().get("access-control-allow-origin").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_jwks_endpoint_returns_public_jwk_with_auto_kid() {
+        // Charge une clé privée de test (PKCS#1) et dérive la clé publique
+        let raw_private_key = fs::read("./local/key_prv.pem".to_string()).unwrap();
+        let priv_key = private_key(raw_private_key).unwrap();
+        let pub_key = priv_key.to_public_key();
+
+        // Route identique à celle du main (sans CORS pour simplifier le test)
+        let route = warp::path!("jwks")
+            .and(warp::get())
+            .and(with_public_key(pub_key.clone()))
+            .and_then(jwks);
+
+        let res = request()
+            .method("GET")
+            .path("/jwks")
+            .reply(&route)
+            .await;
+
+        assert_eq!(res.status(), 200);
+
+        let body: serde_json::Value = serde_json::from_slice(res.body()).unwrap();
+        let keys = body.get("keys").and_then(|v| v.as_array()).unwrap();
+        assert_eq!(keys.len(), 1);
+
+        let jwk = keys[0].as_object().unwrap();
+        assert_eq!(jwk.get("kty").and_then(|v| v.as_str()).unwrap(), "RSA");
+        assert_eq!(jwk.get("use").and_then(|v| v.as_str()).unwrap(), "sig");
+        assert_eq!(jwk.get("alg").and_then(|v| v.as_str()).unwrap(), "RS256");
+
+        // Vérifie n/e encodés en base64url sans padding
+        let expected_n = general_purpose::URL_SAFE_NO_PAD.encode(pub_key.n().to_bytes_be());
+        let expected_e = general_purpose::URL_SAFE_NO_PAD.encode(pub_key.e().to_bytes_be());
+        assert_eq!(jwk.get("n").and_then(|v| v.as_str()).unwrap(), expected_n.as_str());
+        assert_eq!(jwk.get("e").and_then(|v| v.as_str()).unwrap(), expected_e.as_str());
+
+        // Vérifie kid auto (RFC7638 thumbprint)
+        let expected_kid = jwk_kid_rfc7638_rsa(&expected_n, &expected_e);
+        assert_eq!(jwk.get("kid").and_then(|v| v.as_str()).unwrap(), expected_kid.as_str());
     }
 }
